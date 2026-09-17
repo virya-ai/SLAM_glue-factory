@@ -1,4 +1,26 @@
 #!/usr/bin/env python3
+"""
+Prepare and visualize the hybrid pose-guided SuperPoint pseudo-label adaptation.
+
+Combines raw SuperPoint detections with depth/pose information to produce
+improved pseudo-labels that suppress dynamic objects and favour geometrically
+stable keypoints. Also generates side-by-side visualisations comparing raw
+detections to adapted labels so the effect of adaptation can be inspected
+visually.
+
+Reads:  raw SP detections H5, depth images, camera poses
+Writes: adapted pseudo-labels H5, visualisation PNGs in the dataset directory
+
+Usage:
+    python -m gluefactory.scripts.prepare_and_visualize_adaptation \\
+        --data_dir       data/output/slam \\
+        --raw_h5         data/output/slam/exports/raw_sp.h5 \\
+        --output_h5      data/output/slam/exports/pseudo_labels_slam.h5 \\
+        --poses_file     data/output/slam/poses.txt \\
+        --modality       rgb \\
+        --num_vis        20
+"""
+
 import argparse
 import logging
 from pathlib import Path
@@ -26,12 +48,15 @@ thread_local = threading.local()
 def get_thread_model(args, device):
     if not hasattr(thread_local, "model"):
         logger.info(f"Instantiating thread-local SuperPoint model on thread {threading.current_thread().name}...")
-        thread_local.model = get_model("superpoint_open")({
+        model_conf = {
             "nms_radius": args.nms,
             "max_num_keypoints": 2048,
             "detection_threshold": 0.0,
             "trainable": False
-        }).to(device).eval()
+        }
+        if hasattr(args, "weights") and args.weights:
+            model_conf["weights"] = args.weights
+        thread_local.model = get_model("superpoint_open")(model_conf).to(device).eval()
     return thread_local.model
 
 
@@ -443,6 +468,8 @@ def multimodal_homographic_adaptation(image_name, images_dir, model, num_warps=1
     
     # Process each modality
     for mod_name, img in loaded_imgs.items():
+        if mod_name == "range":
+            continue
         # 1. Base detection on original image
         if use_gpu:
             img_feed_t = loaded_imgs_feed_t[mod_name]
@@ -747,7 +774,9 @@ def save_visualizations(scene_name, kpts, scores, loaded_imgs, warped_samples, o
     cbar.ax.xaxis.set_tick_params(color="white")
     plt.setp(plt.getp(cbar.ax.axes, "xticklabels"), color="white")
     
-    consensus_path = output_dir / f"{Path(scene_name).stem}_consensus.png"
+    consensus_dir = output_dir / "consensus"
+    consensus_dir.mkdir(exist_ok=True, parents=True)
+    consensus_path = consensus_dir / f"{Path(scene_name).stem}_consensus.png"
     plt.savefig(consensus_path, bbox_inches="tight", facecolor=fig.get_facecolor(), edgecolor="none")
     plt.close()
     
@@ -775,7 +804,9 @@ def save_visualizations(scene_name, kpts, scores, loaded_imgs, warped_samples, o
                 ax.scatter(w_kpts[:, 0], w_kpts[:, 1], c=w_scores, cmap="plasma", s=10, edgecolors="none", alpha=0.8)
             ax.set_title(f"Intermediate Warp {idx+1}", color="#fc4445", fontsize=11, pad=10)
             
-        warps_path = output_dir / f"{Path(scene_name).stem}_warped_samples.png"
+        warps_dir = output_dir / "warped_samples"
+        warps_dir.mkdir(exist_ok=True, parents=True)
+        warps_path = warps_dir / f"{Path(scene_name).stem}_warped_samples.png"
         plt.savefig(warps_path, bbox_inches="tight", facecolor=fig_w.get_facecolor(), edgecolor="none")
         plt.close()
 
@@ -844,6 +875,7 @@ def main():
     parser.add_argument("--num_threads", type=int, default=4, help="Number of parallel thread workers for image dataset processing.")
     parser.add_argument("--dataset", type=str, default="custom_dataset1", help="Name of the dataset directory under data/")
     parser.add_argument("--image_list_modality", type=str, default="reflectivity", choices=MODALITIES, help="Modality directory prefix for custom_image_list.txt")
+    parser.add_argument("--weights", type=str, default=None, help="Path to custom SuperPoint model weights")
     args = parser.parse_args()
     
     dataset_dir = DATA_PATH / args.dataset
@@ -939,7 +971,7 @@ def main():
             
     # Copy the first scene visualization as the default overview
     sample_stem = Path(image_names[0]).stem
-    default_consensus = visualizations_dir / f"{sample_stem}_consensus.png"
+    default_consensus = visualizations_dir / "consensus" / f"{sample_stem}_consensus.png"
     default_overview = dataset_dir / "adaptation_visualization.png"
     if default_consensus.exists():
         import shutil

@@ -197,7 +197,7 @@ class _Dataset(torch.utils.data.Dataset):
         )
         orig_n = features["keypoints"].shape[0]
         for k, v in list(features.items()):
-            if isinstance(v, np.ndarray) and v.shape[0] == orig_n:
+            if isinstance(v, (np.ndarray, torch.Tensor)) and v.shape[0] == orig_n:
                 features[k] = v[valid]
         features["keypoints"] = warped_kp[valid]
 
@@ -261,6 +261,11 @@ class _Dataset(torch.utils.data.Dataset):
         data["scales"] = np.array([1.0, 1.0], dtype=np.float32)
         if self.conf.load_features.do:
             features = self.feature_loader({k: [v] for k, v in data.items()})
+            features = {
+                k: v[0] if isinstance(v, (torch.Tensor, np.ndarray, list)) else v 
+                for k, v in features.items()
+            }
+
             features = self._transform_keypoints(features, data)
             data["cache"] = features
 

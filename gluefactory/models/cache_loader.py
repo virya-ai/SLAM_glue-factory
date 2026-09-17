@@ -1,4 +1,5 @@
 import string
+from pathlib import Path
 
 import h5py
 import torch
@@ -102,8 +103,30 @@ class CacheLoader(BaseModel):
             fpath = self.conf.path.format(**{k: data[k][i] for k in var_names})
             if self.conf.add_data_path:
                 fpath = DATA_PATH / fpath
-            hfile = h5py.File(str(fpath), "r")
-            grp = hfile[name]
+            fpath = str(fpath)
+            hfile = self.hfiles.get(fpath)
+            if hfile is None:
+                hfile = h5py.File(fpath, "r")
+                self.hfiles[fpath] = hfile
+            if name in hfile:
+                grp = hfile[name]
+            elif Path(name).name in hfile:
+                grp = hfile[Path(name).name]
+            else:
+                found = False
+                for modality in ["reflectivity", "nearir", "signal", "range"]:
+                    candidate = f"{modality}/{name}"
+                    if candidate in hfile:
+                        grp = hfile[candidate]
+                        found = True
+                        break
+                    candidate_flat = f"{modality}/{Path(name).name}"
+                    if candidate_flat in hfile:
+                        grp = hfile[candidate_flat]
+                        found = True
+                        break
+                if not found:
+                    raise KeyError(f"Could not find key {name} in {fpath}")
             pkeys = (
                 self.conf.data_keys if self.conf.data_keys is not None else grp.keys()
             )
@@ -133,7 +156,6 @@ class CacheLoader(BaseModel):
             if self.padding_fn is not None:
                 pred = self.padding_fn(pred, self.conf.padding_length)
             preds.append(pred)
-            hfile.close()
         if self.conf.collate:
             return batch_to_device(collate(preds), device)
         else:
