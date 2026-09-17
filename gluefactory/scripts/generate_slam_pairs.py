@@ -116,8 +116,33 @@ def main():
 
     logger.info("Computing pairwise distances and covisibility...")
     pairs = []
-    name_to_ts = {n: Path(n).stem for n in image_names}
-    valid_names = [n for n in image_names if name_to_ts[n] in poses]
+
+    pose_ts_list = np.array([float(t) for t in poses.keys()])
+    pose_ts_sorted_idx = np.argsort(pose_ts_list)
+    pose_ts_sorted = pose_ts_list[pose_ts_sorted_idx]
+    pose_keys_sorted = [list(poses.keys())[i] for i in pose_ts_sorted_idx]
+
+    name_to_ts = {}
+    valid_names = []
+    for n in image_names:
+        raw = Path(n).stem.replace("_", ".")
+        try:
+            img_ts = float(raw)
+        except ValueError:
+            continue
+        idx = np.searchsorted(pose_ts_sorted, img_ts)
+        if idx >= len(pose_ts_sorted):
+            idx = len(pose_ts_sorted) - 1
+        elif idx > 0:
+            if abs(pose_ts_sorted[idx] - img_ts) > abs(pose_ts_sorted[idx - 1] - img_ts):
+                idx = idx - 1
+        matched_key = pose_keys_sorted[idx]
+        name_to_ts[n] = matched_key
+        valid_names.append(n)
+
+    logger.info(f"Matched {len(valid_names)}/{len(image_names)} images to poses.")
+    for n in valid_names[:3]:
+        logger.debug(f"  {n} -> pose ts {name_to_ts[n]} (delta={abs(float(Path(n).stem.replace('_','.')) - float(name_to_ts[n])):.6f}s)")
 
     for i, name_i in enumerate(tqdm(valid_names)):
         ts_i = name_to_ts[name_i]

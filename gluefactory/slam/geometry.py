@@ -12,6 +12,46 @@ import torch
 import yaml
 from scipy.spatial.transform import Rotation as R
 
+_pose_ts_cache = {}
+
+
+def _get_pose_index(poses):
+    """Return (sorted_float_ts, sorted_key_list) for a poses dict.
+
+    The index is cached per dict instance since pose matching is done for every
+    image (potentially thousands of times) in the dataset.
+    """
+    key = id(poses)
+    if key in _pose_ts_cache:
+        return _pose_ts_cache[key]
+    keys = list(poses.keys())
+    ts = np.array([float(t) for t in keys])
+    order = np.argsort(ts)
+    result = (ts[order], [keys[i] for i in order])
+    _pose_ts_cache[key] = result
+    return result
+
+
+def _match_image_ts(image_name, ts_sorted, keys_sorted):
+    """Return the pose key nearest to an image filename's timestamp.
+
+    Handles filenames using ``SECONDS_NANOSECONDS`` (e.g. ``1786453855_234014570.png``)
+    and pose timestamps using ``SECONDS.FRACTION`` (e.g. ``1786453855.134079``).
+    Returns None if the stem cannot be parsed as a float.
+    """
+    raw = Path(image_name).stem.replace("_", ".")
+    try:
+        img_ts = float(raw)
+    except ValueError:
+        return None
+    idx = np.searchsorted(ts_sorted, img_ts)
+    if idx >= len(ts_sorted):
+        idx = len(ts_sorted) - 1
+    elif idx > 0:
+        if abs(ts_sorted[idx] - img_ts) > abs(ts_sorted[idx - 1] - img_ts):
+            idx -= 1
+    return keys_sorted[idx]
+
 
 # ---------------------------------------------------------------------------
 # Pose and intrinsics
@@ -119,10 +159,11 @@ def get_neighbor_relative_poses(
         sorted by translation distance (closest first).  Empty list if depth or
         pose data is unavailable.
     """
-    ts_i = Path(image_name).stem
-    if ts_i not in poses:
+    pose_idx = _get_pose_index(poses)
+    ts_key_i = _match_image_ts(image_name, *pose_idx)
+    if ts_key_i is None or ts_key_i not in poses:
         return []
-    R_i, t_i = poses[ts_i]
+    R_i, t_i = poses[ts_key_i]
     depth_path_i = Path(dataset_dir) / "images/depth" / image_name
     if not depth_path_i.exists():
         return []
@@ -135,10 +176,10 @@ def get_neighbor_relative_poses(
     for name_j in image_names:
         if name_j == image_name:
             continue
-        ts_j = Path(name_j).stem
-        if ts_j not in poses:
+        ts_key_j = _match_image_ts(name_j, *pose_idx)
+        if ts_key_j is None or ts_key_j not in poses:
             continue
-        R_j, t_j = poses[ts_j]
+        R_j, t_j = poses[ts_key_j]
         dist = np.linalg.norm(t_i - t_j)
         if dist < min_dist or dist > max_dist:
             continue
