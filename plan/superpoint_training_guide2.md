@@ -46,7 +46,7 @@ The generated multi-modal dataset verification visual is displayed below:
 All newly created and modified files are located in your workspace:
 
 *   **Model & Loss Module**: [superpoint_open.py](file:///home/tippeswamy/ws/thippeswamy/glue-factory/gluefactory/models/extractors/superpoint_open.py) — Contains the completed neural network architecture and joint Cross-Entropy + Hinge loss functions.
-*   **Multimodal Adaptation Tool**: [prepare_and_visualize_adaptation.py](file:///home/tippeswamy/ws/thippeswamy/glue-factory/gluefactory/scripts/prepare_and_visualize_adaptation.py) — The executable joint multi-modal dataset generator script.
+*   **Multimodal Adaptation Tool**: [prepare_slam_labels.py](file:///home/tippeswamy/ws/thippeswamy/glue-factory/gluefactory/scripts/prepare_slam_labels.py) — The executable joint multi-modal dataset generator script.
 *   **Custom Dataset Cache File**: `/home/tippeswamy/ws/thippeswamy/glue-factory/data/custom_dataset/exports/pseudo_labels.h5` — Generated joint pseudo-ground-truth labels.
 *   **Custom Training Configuration**: [superpoint_custom_homography.yaml](file:///home/tippeswamy/ws/thippeswamy/glue-factory/gluefactory/configs/superpoint_custom_homography.yaml) — Training configuration pointing to the multimodal cached labels.
 
@@ -71,7 +71,7 @@ data:
 ```
 <!-- slide -->
 ```python
-# Back-Projected Repeatability Normalization (prepare_and_visualize_adaptation.py)
+# Back-Projected Repeatability Normalization (prepare_slam_labels.py)
 normalized_heatmap = joint_accumulator / np.maximum(global_trials, 1.0)
 ```
 ````
@@ -92,10 +92,10 @@ find . -type f \( -iname "*.png" -o -iname "*.jpg" \) | sed 's|^\./||' > ../cust
 
 find images -type f \( -iname "*.png" -o -iname "*.jpg" -o -iname "*.jpeg" \) > custom_image_list.txt
 
-python3 prepare_and_visualize_adaptation.py 
+python3 prepare_slam_labels.py 
 
 # Launch with full GPU acceleration, 8 parallel threads, and automatic custom_image_list.txt generation for custom_dataset
-python3 -m gluefactory.scripts.prepare_and_visualize_adaptation \
+python3 -m gluefactory.scripts.prepare_slam_labels \
     --warp_mode 3d \
     --use_gpu \
     --num_threads 8 \

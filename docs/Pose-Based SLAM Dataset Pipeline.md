@@ -4,13 +4,14 @@ The SLAM dataset pipeline has been successfully implemented and validated on the
 
 ## What Was Completed
 
-1. **Stage 1 (Pseudo-Labels)**: Implemented `prepare_slam_superpoint.py`
+1. **Stage 1 (Pseudo-Labels)**: Implemented `prepare_slam_labels.py`
    - Uses the 16-bit depth PNGs as the `range` channel to enable true 3D projective warping.
    - Accurately reads camera intrinsics `K` from the per-frame `.yaml` files.
    - Extracts pseudo-labels and saves them to `pseudo_labels_slam.h5`.
 
 2. **Stage 1b (Visualization)**: Implemented `visualize_slam_labels.py`
-   (since merged into `gluefactory/scripts/visualize_slam_dataset.py --source labels`)
+   (now the `labels` kind of the unified `gluefactory.visualization.datasetviz`,
+   auto-run by `prepare_slam_labels` unless `--num_vis 0`)
    - Generates an HTML dashboard showing the RGB frames overlaid with SuperPoint keypoints (colored by score using a plasma colormap).
 
 3. **Stage 2 (Pairs generation)**: Implemented `generate_slam_pairs.py`
@@ -21,7 +22,8 @@ The SLAM dataset pipeline has been successfully implemented and validated on the
    - Extracts the pre-trained SP features to `sp_features_slam.h5`.
 
 4. **Stage 2b (Visualization)**: Implemented `visualize_slam_pairs.py`
-   (since merged into `gluefactory/scripts/visualize_slam_dataset.py --source pairs`)
+   (now the `pairs` kind of the unified `gluefactory.visualization.datasetviz`,
+   auto-run by `generate_slam_pairs` unless `--num_vis 0`)
    - Creates a side-by-side visual dashboard of the paired images, plotting the SP keypoints.
 
 5. **Dataset Class**: Implemented `slam_posed_images.py`
@@ -46,17 +48,17 @@ You can now run the exact same scripts on the **full dataset**!
 Just point the `--data_dir` to your full directory:
 
 ```bash
-# 1. Generate Pseudo-labels on full data
-python3 -m gluefactory.scripts.prepare_slam_superpoint --data_dir data/output/slam --num_warps 50
+# 1. Generate Pseudo-labels on full data (labels visualization auto-runs with 50 images)
+python3 -m gluefactory.scripts.prepare_slam_labels --data_dir data/output/slam --num_warps 50 --num_vis 50
 
-# 2. Visualize Pseudo-labels
-python3 -m gluefactory.scripts.visualize_slam_dataset --source labels --data_dir data/output/slam --max_items 100
+# 2. (Optional) Re-run visualization separately with the unified CLI
+python -m gluefactory.scripts.visualize_dataset labels --data_dir data/output/slam --num_vis 100
 
-# 3. Generate Pairs
-python3 -m gluefactory.scripts.generate_slam_pairs --data_dir data/output/slam --extract_features --sp_weights outputs/training/superpoint_custom_run_0_force_true/checkpoint_best.tar
+# 3. Generate Pairs (pair visualization auto-runs with 50 pairs)
+python3 -m gluefactory.scripts.generate_slam_pairs --data_dir data/output/slam --extract_features --sp_weights outputs/training/superpoint_custom_run_0_force_true/checkpoint_best.tar --num_vis 50
 
-# 4. Visualize Pairs
-python3 -m gluefactory.scripts.visualize_slam_dataset --source pairs --data_dir data/output/slam --max_items 50
+# 4. (Optional) Re-run visualization separately with the unified CLI
+python -m gluefactory.scripts.visualize_dataset pairs --data_dir data/output/slam --num_vis 50
 ```
 
 Once the pairs are generated for the full dataset, you can begin training using the new configs (just ensure the `root` path in the configs points to `output/slam` instead of `output/sample_slam` when you are ready!).

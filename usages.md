@@ -20,16 +20,17 @@ SuperPoint → SuperGlue training pipeline, from raw images to final evaluation.
 
 ## 1. Scripts Directory
 
-All stand-alone helper tools live in `scripts/` to keep the project root clean.
+All stand-alone helper tools live in `gluefactory/scripts/` — the single scripts
+location for the whole project — and are invoked with `python3 -m gluefactory.scripts.<name>`.
 
 | Script | Purpose | How to Run |
 | :--- | :--- | :--- |
 | **`gluefactory.scripts.run_inference`** | Unified SuperPoint / SuperPoint+SuperGlue / SuperPoint+LightGlue inference and visualization (checkpoint or exported `.pt`), replacing `visualize_custom.py`, `export_interactive_matches.py`, `match_images.py`, `match_images_from_pt.py`, `infer_superpoint.py`, `infer_superglue.py`. | `python3 -m gluefactory.scripts.run_inference --backend checkpoint --matcher superglue ...` |
-| **`scripts/boost_h5_scores.py`** | Scale up matching scores in an exported HDF5 feature file. | `python3 scripts/boost_h5_scores.py` |
-| **`scripts/filter_h5_file.py`** | Filter keypoints in an HDF5 feature file by confidence score threshold. | `python3 scripts/filter_h5_file.py` |
-| **`scripts/profile_model.py`** | Benchmark inference latency of a specific model. | `python3 scripts/profile_model.py` |
-| **`scripts/profile_loop.py`** | Measure data-loading throughput of a training/validation dataset loop. | `python3 scripts/profile_loop.py` |
-| **`scripts/profile_warp.py`** | Benchmark homography warping operations. | `python3 scripts/profile_warp.py` |
+| **`gluefactory.scripts.boost_h5_scores`** | Scale up matching scores in an exported HDF5 feature file. | `python3 -m gluefactory.scripts.boost_h5_scores` |
+| **`gluefactory.scripts.filter_h5_file`** | Filter keypoints in an HDF5 feature file by confidence score threshold. | `python3 gluefactory.scripts.filter_h5_file` |
+| **`gluefactory.scripts.profile_model`** | Benchmark inference latency of a specific model. | `python3 gluefactory.scripts.profile_model` |
+| **`gluefactory.scripts.profile_loop`** | Measure data-loading throughput of a training/validation dataset loop. | `python3 gluefactory.scripts.profile_loop` |
+| **`gluefactory.scripts.profile_warp`** | Benchmark homography warping operations. | `python3 gluefactory.scripts.profile_warp` |
 
 ---
 
@@ -74,63 +75,48 @@ head -5  data/output/dataset/custom_image_list.txt
 > **Note:** The adaptation script (step 2b) will **also auto-write** this list — so you
 > only need the `find` command if you want to regenerate it independently.
 
-### 2b — Joint Multimodal Homographic Adaptation (generate pseudo-labels)
+### 2b — Homographic + 3D-Projective Adaptation (generate pseudo-labels)
 
-**Script:** `gluefactory/scripts/prepare_and_visualize_adaptation.py`
+**Script:** `gluefactory/scripts/prepare_slam_labels.py`
 
-The script's `--dataset` is a **name relative to `data/`** (i.e., `DATA_PATH`).  
-It auto-discovers images from `data/<dataset>/images/nearir/`, writes
-`data/<dataset>/exports/pseudo_labels.h5`, and auto-generates `custom_image_list.txt`.
+The inherited joint-multimodal adaptation pipeline (`prepare_and_visualize_adaptation.py`)
+was removed during the SLAM refactor: pseudo-label generation is now a single-modality
+pipeline (`--modality rgb`, default). Point it at a SLAM dataset directory.
 
 ```bash
-# Actual CLI args (from argparse in the script):
-#   --dataset           name under data/          (default: custom_dataset1)
-#   --num_warps         warps per modality         (default: 200)
-#   --thresh            keypoint threshold         (default: 0.02)
-#   --nms               NMS radius                 (default: 5)
-#   --warp_mode         2d | 3d                    (default: 3d)
-#   --camera_info       path to camera.info        (default: plan/camera.info)
-#   --num_threads       parallel workers           (default: 4)
-#   --image_list_modality  nearir|range|reflectivity|signal (default: reflectivity)
-#   --weights           custom SP checkpoint (optional)
-#   --use_gpu / --no_gpu
-#   --save_detailed_warps   save per-warp side-by-side plots
+# CLI args (from argparse — see --help for the full list):
+#   --data_dir         dataset directory            (default: data/output/sample_slam)
+#   --output_h5        output pseudo-labels file    (default: <data_dir>/exports/pseudo_labels_slam.h5)
+#   --num_warps        warps per image              (default: 50)
+#   --thresh           keypoint threshold           (default: 0.015)
+#   --nms              NMS radius                   (default: 4)
+#   --max_keypoints    max detections per image     (default: 512)
+#   --warp_mode        2d | 3d                      (default: 3d)
+#   --weights          custom SP checkpoint (optional)
+#   --modality         rgb (default)
+#   --poses_file       SLAM trajectory file         (default: poses_odom_RGBD_slam.txt)
+#   --pose_ratio       fraction of pose-supervised warps (default: 0.6)
+#   --max_dist/--min_dist/--max_angle/--min_overlap/--max_neighbors   neighbour search
 
-# --- Full custom dataset (output/dataset) ---
-python3 -m gluefactory.scripts.prepare_and_visualize_adaptation \
-    --dataset              output/dataset \
-    --image_list_modality  reflectivity \
-    --num_warps            14 \
-    --num_threads          14 \
+# --- Full custom dataset ---
+python3 -m gluefactory.scripts.prepare_slam_labels \
+    --data_dir  data/output/dataset \
+    --num_warps 14 \
     --use_gpu \
-    --warp_mode            3d
-# Output H5 → data/output/dataset/exports/pseudo_labels.h5
-# Image list → data/output/dataset/custom_image_list.txt
+    --warp_mode 3d
+# Output H5 → data/output/dataset/exports/pseudo_labels_slam.h5
 
-# --- Small sample dataset (output/sample_data) ---
-python3 -m gluefactory.scripts.prepare_and_visualize_adaptation \
-    --dataset              output/sample_data \
-    --image_list_modality  reflectivity \
-    --num_warps            14 \
-    --num_threads          8 \
+# --- Small sample dataset ---
+python3 -m gluefactory.scripts.prepare_slam_labels \
+    --data_dir  data/output/sample_data \
+    --num_warps 14 \
     --use_gpu \
-    --warp_mode            3d
-
-
-# --- With custom-trained SuperPoint weights &  dataset (output/dataset) ---
-python3 -m gluefactory.scripts.prepare_and_visualize_adaptation \
-    --dataset              output/dataset \
-    --weights              outputs/training/superpoint_custom_run/checkpoint_best.tar \
-    --image_list_modality  reflectivity \
-    --num_warps            14 \
-    --num_threads          14 \
-    --use_gpu \
-    --warp_mode            3d
+    --warp_mode 3d
 ```
 
-> **Camera intrinsics:** For `--warp_mode 3d` the script reads `plan/camera.info`
-> (default path). If it doesn't exist, use `--camera_info <path>` or fall back to
-> `--warp_mode 2d`.
+> **Camera intrinsics:** For `--warp_mode 3d` the script reads the camera calibration
+> YAML matching the first frame under `<data_dir>/images/calib/`. If calibrations are
+> missing, use `--warp_mode 2d`.
 
 Sanity-check the output:
 ```bash
@@ -149,13 +135,15 @@ print('  scores:   ', f[k0]['keypoint_scores'].shape)
 
 ## 3. Export SuperPoint Feature Cache (.h5)
 
-Use `gluefactory/scripts/export_local_features.py` to export keypoints + descriptors.
+Use `gluefactory/scripts/export_features.py` to export keypoints + descriptors.
 
 **CLI** (from script source):
 ```
-python3 -m gluefactory.scripts.export_local_features <dataset> [--method sp|sp_custom|sift|disk] [--num_workers N]
+python3 -m gluefactory.scripts.export_features <dataset> [--method METHOD] [--weights PATH] [--export_prefix PREFIX] [--num_workers N]
 ```
-- `<dataset>` = name under `data/`  →  e.g. `output/dataset`
+- `<dataset>` = name under `data/`  →  e.g. `output/dataset` (use `megadepth` for MegaDepth)
+- `--method` = `sp|sp_open|sp_custom|sift|sift_pycolmap|sift_pycolmap_gpu|keynet|disk|aliked`
+- `--weights` = checkpoint path (required for `sp_custom`)
 - Reads `data/<dataset>/custom_image_list.txt` automatically when present
 - Output: `data/exports/<method_name>.h5`
 
@@ -163,31 +151,31 @@ python3 -m gluefactory.scripts.export_local_features <dataset> [--method sp|sp_c
 
 ```bash
 # output: data/exports/r1600_SP-k2048-nms3.h5
-python3 -m gluefactory.scripts.export_local_features output/dataset \
+python3 -m gluefactory.scripts.export_features output/dataset \
     --method      sp \
     --num_workers 8
 ```
 
 ### 3b — Custom-Trained SuperPoint (`--method sp_custom`)
 
-The `sp_custom` config in the script hardcodes:
-- weights: `outputs/training/superpoint_custom_run/checkpoint_best.tar`
-- nms_radius=4, max_num_keypoints=2048, detection_threshold=0.005, **no resize**
+`sp_custom` wraps `extractors.superpoint_open` with **your** checkpoint, supplied via
+the `--weights` flag (nms_radius=6, max_num_keypoints=2048, detection_threshold=0.01, **no resize**).
 
 ```bash
 # output: data/exports/custom_SP-k2048-nms4.h5
-python3 -m gluefactory.scripts.export_local_features output/dataset \
+python3 -m gluefactory.scripts.export_features output/dataset \
     --method      sp_custom \
+    --weights     outputs/training/superpoint_custom_run/checkpoint_best.tar \
     --num_workers 8
 ```
 
 ### 3c — Extract Descriptors at Consensus Keypoints (SuperGlue prep)
 
-Use `gluefactory/scripts/export_consensus_features.py`:
+Use `gluefactory/scripts/export_slam_features.py`:
 
 ```bash
 # CLI args: --dataset, --pseudo_labels_h5, --weights, --output_h5, --modality
-python3 -m gluefactory.scripts.export_consensus_features \
+python3 -m gluefactory.scripts.export_slam_features \
     --dataset          output/dataset \
     --pseudo_labels_h5 data/output/dataset/exports/pseudo_labels.h5 \
     --weights          outputs/training/superpoint_custom_run/checkpoint_best.tar \
@@ -209,11 +197,11 @@ for name, ds in grp.items():
 " data/output/dataset/exports/custom_SP-k2048-nms4.h5
 
 # Post-processing helpers
-python3 scripts/boost_h5_scores.py \
+python3 -m gluefactory.scripts.boost_h5_scores \
     --input  data/output/dataset/exports/custom_SP-k2048-nms4.h5 \
     --output data/output/dataset/exports/custom_SP-k2048-nms4-boosted.h5 --scale 2.0
 
-python3 scripts/filter_h5_file.py \
+python3 -m gluefactory.scripts.filter_h5_file \
     --input     data/output/dataset/exports/custom_SP-k2048-nms4.h5 \
     --output    data/output/dataset/exports/custom_SP-k2048-nms4-filtered.h5 \
     --threshold 0.02
@@ -292,7 +280,7 @@ python3 -m gluefactory.train superpoint_custom_run \
 
 Runs the trained model alone (no matcher) on every image under `--input` and saves
 a per-image keypoint-overlay PNG (colour = detection score) plus an HTML grid.
-This replaced the old `scripts/visualize_custom.py`.
+This replaced the old `visualize_custom.py`.
 
 ```bash
 # CLI args (see gluefactory/scripts/run_inference.py --help for the full list)
@@ -325,34 +313,36 @@ python3 -m gluefactory.scripts.run_inference \
 > and strips the `extractor.` prefix automatically, so the standard training checkpoint
 > works directly.
 
-### Export Keypoints + Descriptors to H5  (`gluefactory/scripts/export_local_features.py`)
+### Export Keypoints + Descriptors to H5  (`gluefactory/scripts/export_features.py`)
 
 Batch-exports keypoints, descriptors, and scores for every image into an HDF5 file.
 The checkpoint and model config come from the **`configs` dict inside the script**.
-To change the checkpoint path edit `configs["sp_custom"]["conf"]["weights"]` in the file.
+For a custom-trained checkpoint use `--method sp_custom --weights <path>`.
 
 ```bash
 # CLI (from argparse — dataset is POSITIONAL, no --dataset flag)
 #   <dataset>       name under data/           (positional, required)
-#   --method        sp | sp_custom | sift | disk  (default: sp)
+#   --method        sp|sp_open|sp_custom|sift|sift_pycolmap|sift_pycolmap_gpu|keynet|disk|aliked  (default: sp)
+#   --weights       checkpoint path for method sp_custom (required)
 #   --export_prefix optional string prefix for the output filename
 #   --num_workers   dataloader workers
 
-# Current sp_custom config (check export_local_features.py to confirm):
-#   weights:              outputs/training/superpoint_custom_run_0_force_true/checkpoint_best.tar
+# Current sp_custom config (check export_features.py to confirm):
+#   weights:              from --weights
 #   nms_radius:           6
 #   max_num_keypoints:    2048
 #   detection_threshold:  0.01
 
 # --- Export custom SP features from full dataset ---
 # Output: data/exports/custom_SP-k2048-nms4.h5
-python3 -m gluefactory.scripts.export_local_features output/dataset \
+python3 -m gluefactory.scripts.export_features output/dataset \
     --method      sp_custom \
+    --weights     outputs/training/superpoint_custom_run/checkpoint_best.tar \
     --num_workers 8
 
 # --- Export official SP features (for baseline comparison) ---
 # Output: data/exports/r1600_SP-k2048-nms3.h5
-python3 -m gluefactory.scripts.export_local_features output/dataset \
+python3 -m gluefactory.scripts.export_features output/dataset \
     --method      sp \
     --num_workers 8
 
@@ -387,8 +377,9 @@ Same as §4e export but the result is the input to SuperGlue training:
 ```bash
 # dataset is a POSITIONAL argument (no --dataset flag)
 # output: data/exports/custom_SP-k2048-nms4.h5
-python3 -m gluefactory.scripts.export_local_features output/dataset \
+python3 -m gluefactory.scripts.export_features output/dataset \
     --method      sp_custom \
+    --weights     outputs/training/superpoint_custom_run/checkpoint_best.tar \
     --num_workers 8
 
 # Copy to where the YAML expects it:
@@ -406,20 +397,17 @@ Re-run homographic adaptation using your **trained SuperPoint** checkpoint to ge
 the highest-quality SuperGlue training targets. Use `--weights` to load the checkpoint:
 
 ```bash
-# Step 1 — re-run adaptation with trained SP; writes pseudo_labels.h5 and image list
-python3 -m gluefactory.scripts.prepare_and_visualize_adaptation \
-    --dataset              output/dataset \
-    --weights              outputs/training/superpoint_custom_run/checkpoint_best.tar \
-    --image_list_modality  reflectivity \
-    --num_warps            14 \
-    --num_threads          14 \
+# Step 1 — re-run adaptation with trained SP; writes pseudo_labels_slam.h5 and image list
+python3 -m gluefactory.scripts.prepare_slam_labels \
+    --data_dir  data/output/dataset \
+    --weights   outputs/training/superpoint_custom_run/checkpoint_best.tar \
+    --num_warps 14 \
     --use_gpu \
-    --warp_mode            3d
-# Output H5   → data/output/dataset/exports/pseudo_labels.h5  (overwritten)
-# Image list  → data/output/dataset/custom_image_list.txt  (auto-written)
+    --warp_mode 3d
+# Output H5   → data/output/dataset/exports/pseudo_labels_slam.h5
 
 # Step 2 — attach descriptors to those consensus keypoints
-python3 -m gluefactory.scripts.export_consensus_features \
+python3 -m gluefactory.scripts.export_slam_features \
     --dataset          output/dataset \
     --pseudo_labels_h5 data/output/dataset/exports/pseudo_labels.h5 \
     --weights          outputs/training/superpoint_custom_run/checkpoint_best.tar \
@@ -468,12 +456,12 @@ python3 -m gluefactory.train superpoint_custom+superglue_homography \
 
 ### 6b — Train SuperGlue on Small Sample Dataset (debug)
 
-Config: `gluefactory/configs/superpoint_custom+superglue_homography_custom_dataset.yaml`  
+Config: `gluefactory/configs/superpoint_custom+lightglue_homography.yaml`  
 Uses: `data/output/sample_data/exports/custom_dataset_consensus_SP.h5`
 
 ```bash
-python3 -m gluefactory.train superpoint_custom+superglue_homography_custom_dataset \
-    --conf gluefactory/configs/superpoint_custom+superglue_homography_custom_dataset.yaml
+python3 -m gluefactory.train superpoint_custom+lightglue_homography \
+    --conf gluefactory/configs/superpoint_custom+lightglue_homography.yaml
 ```
 
 ### 6c — Fine-tune from Official SuperGlue Weights

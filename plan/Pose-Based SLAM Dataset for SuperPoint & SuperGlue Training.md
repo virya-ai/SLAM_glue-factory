@@ -52,7 +52,7 @@ graph TD
 
 ### Component 1: Stage-1 Pose-Based SuperPoint Pseudo-Label Generator
 
-#### [NEW] `gluefactory/scripts/prepare_slam_superpoint.py`
+#### [NEW] `gluefactory/scripts/prepare_slam_labels.py`
 
 A new script that:
 - Parses `poses_odom_RGBD_slam.txt` (timestamp → SE3 pose via quat→rotation matrix)
@@ -62,7 +62,7 @@ A new script that:
 - Optionally uses pose-derived relative transforms to generate **pose-consistent synthetic views** instead of pure random homographies
 - Writes keypoints + scores per frame into `data/output/slam/exports/pseudo_labels_slam.h5`
 
-**Key differences from `prepare_and_visualize_adaptation.py`**:
+**Key differences from `prepare_slam_labels.py`**:
 - Single `rgb/` modality instead of 4 LiDAR modalities
 - Per-frame calibration reading from YAML files
 - No `nearir`/`range`/`reflectivity`/`signal` directory structure
@@ -147,7 +147,7 @@ model:
 
 ### Stage 1: SuperPoint Pseudo-Labels
 
-#### [NEW] `gluefactory/scripts/prepare_slam_superpoint.py`
+#### [NEW] `gluefactory/scripts/prepare_slam_labels.py`
 
 ```
 Arguments:
@@ -335,7 +335,7 @@ benchmarks:
 ## Execution Order
 
 ```
-1. Run prepare_slam_superpoint.py  → produces pseudo_labels_slam.h5 + image lists
+1. Run prepare_slam_labels.py  → produces pseudo_labels_slam.h5 + image lists
 2. Run generate_slam_pairs.py      → produces pairs_train.txt + pairs_val.txt (+ optional sp_features.h5)
 3. Train SP:  python -m gluefactory.train superpoint_slam
 4. Train SG:  python -m gluefactory.train superpoint+superglue_slam

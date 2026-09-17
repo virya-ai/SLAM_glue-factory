@@ -106,7 +106,7 @@ class SLAMFeatureExtractor:
             .to(self.device) / 255.0
         )
         with torch.no_grad():
-            pred = self._model({"image": img_t})
+            pred = self._get_thread_model()({"image": img_t})
         return {
             "keypoints": pred["keypoints"][0].cpu().numpy(),
             "keypoint_scores": pred["keypoint_scores"][0].cpu().numpy(),

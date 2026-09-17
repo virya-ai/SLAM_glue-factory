@@ -12,6 +12,38 @@ import numpy as np
 import seaborn as sns
 import torch
 
+import cv2
+
+
+def draw_matches(img0, img1, kp0, kp1, matches):
+    """Render two images side-by-side with matched keypoints and lines.
+
+    Args:
+        img0, img1: BGR or RGB uint8 images of shape (H0, W0, 3), (H1, W1, 3).
+        kp0, kp1: keypoint arrays with columns (x, y).
+        matches: iterable of (idx0, idx1) pairs.
+
+    Returns:
+        uint8 canvas of shape (max(H0, H1), W0 + W1, 3).
+    """
+    h0, w0 = img0.shape[:2]
+    h1, w1 = img1.shape[:2]
+    H = max(h0, h1)
+
+    canvas = np.zeros((H, w0 + w1, 3), dtype=np.uint8)
+    canvas[:h0, :w0] = img0
+    canvas[:h1, w0 : w0 + w1] = img1
+
+    for i, j in matches:
+        x0, y0 = int(round(kp0[i][0])), int(round(kp0[i][1]))
+        x1, y1 = int(round(kp1[j][0])) + w0, int(round(kp1[j][1]))
+
+        cv2.circle(canvas, (x0, y0), 3, (0, 255, 0), -1)
+        cv2.circle(canvas, (x1, y1), 3, (0, 255, 0), -1)
+        cv2.line(canvas, (x0, y0), (x1, y1), (255, 0, 0), 1, cv2.LINE_AA)
+
+    return canvas
+
 
 def cm_ranking(sc, ths=[512, 1024, 2048, 4096]):
     ls = sc.shape[0]

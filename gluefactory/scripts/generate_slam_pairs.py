@@ -22,55 +22,25 @@ import argparse
 import logging
 from pathlib import Path
 
-import cv2
 import h5py
 import numpy as np
 import torch
-import threading
 from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
 
-from gluefactory.models import get_model
 from gluefactory.slam.geometry import (
     compute_covisibility,
+    get_pose_index,
     load_camera_intrinsics,
+    match_image_timestamp,
     parse_poses,
 )
+from gluefactory.slam.extractor import SLAMFeatureExtractor
 from gluefactory.slam.io import write_h5_features
+from gluefactory.visualization.datasetviz import visualize
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-_thread_local = threading.local()
-
-
-def _get_thread_model(args, device):
-    if not hasattr(_thread_local, "model"):
-        model_conf = {
-            "nms_radius": args.nms_radius,
-            "max_num_keypoints": args.max_keypoints,
-            "detection_threshold": 0.0,
-            "trainable": False,
-        }
-        if hasattr(args, "sp_weights") and args.sp_weights:
-            model_conf["weights"] = args.sp_weights
-        _thread_local.model = get_model("superpoint_open")(model_conf).to(device).eval()
-    return _thread_local.model
-
-
-def _extract_features(image_name, dataset_dir, model, device):
-    rgb_path = dataset_dir / "images/rgb" / image_name
-    img_rgb = cv2.imread(str(rgb_path), cv2.IMREAD_GRAYSCALE)
-    if img_rgb is None:
-        return None, None, None
-    img_t = torch.from_numpy(img_rgb.astype(np.float32)).to(device).unsqueeze(0).unsqueeze(0) / 255.0
-    with torch.no_grad():
-        pred = model({"image": img_t})
-    return (
-        pred["keypoints"][0].cpu().numpy(),
-        pred["keypoint_scores"][0].cpu().numpy(),
-        pred["descriptors"][0].cpu().numpy(),
-    )
 
 
 def main():
@@ -87,6 +57,9 @@ def main():
     parser.add_argument("--nms_radius", type=int, default=3)
     parser.add_argument("--max_keypoints", type=int, default=512)
     parser.add_argument("--num_threads", type=int, default=14)
+    parser.add_argument("--num_vis", type=int, default=50,
+                        help="Number of pairs to visualize automatically after "
+                             "creation (0 = skip).")
     args = parser.parse_args()
 
     dataset_dir = Path(args.data_dir)
@@ -117,26 +90,15 @@ def main():
     logger.info("Computing pairwise distances and covisibility...")
     pairs = []
 
-    pose_ts_list = np.array([float(t) for t in poses.keys()])
-    pose_ts_sorted_idx = np.argsort(pose_ts_list)
-    pose_ts_sorted = pose_ts_list[pose_ts_sorted_idx]
-    pose_keys_sorted = [list(poses.keys())[i] for i in pose_ts_sorted_idx]
+    pose_idx = get_pose_index(poses)
+    pose_ts_sorted, pose_keys_sorted = pose_idx
 
     name_to_ts = {}
     valid_names = []
     for n in image_names:
-        raw = Path(n).stem.replace("_", ".")
-        try:
-            img_ts = float(raw)
-        except ValueError:
+        matched_key = match_image_timestamp(n, *pose_idx)
+        if matched_key is None:
             continue
-        idx = np.searchsorted(pose_ts_sorted, img_ts)
-        if idx >= len(pose_ts_sorted):
-            idx = len(pose_ts_sorted) - 1
-        elif idx > 0:
-            if abs(pose_ts_sorted[idx] - img_ts) > abs(pose_ts_sorted[idx - 1] - img_ts):
-                idx = idx - 1
-        matched_key = pose_keys_sorted[idx]
         name_to_ts[n] = matched_key
         valid_names.append(n)
 
@@ -198,15 +160,23 @@ def main():
         exports_dir.mkdir(exist_ok=True)
         h5_path = exports_dir / "sp_features_slam.h5"
         device = "cuda" if torch.cuda.is_available() else "cpu"
+        extractor = SLAMFeatureExtractor(
+            args.sp_weights,
+            {
+                "nms_radius": args.nms_radius,
+                "max_num_keypoints": args.max_keypoints,
+                "detection_threshold": 0.0,
+            },
+            device,
+        )
         unique_images = list(set([p[0] for p in pairs] + [p[1] for p in pairs]))
+
+        def worker(name):
+            out = extractor.extract(dataset_dir / "images/rgb" / name)
+            return name, out["keypoints"], out["keypoint_scores"], out["descriptors"]
 
         with h5py.File(h5_path, "w") as f:
             with tqdm(total=len(unique_images)) as pbar:
-                def worker(name):
-                    local_model = _get_thread_model(args, device)
-                    kpts, scores, desc = _extract_features(name, dataset_dir, local_model, device)
-                    return name, kpts, scores, desc
-
                 if args.num_threads > 1:
                     with ThreadPoolExecutor(max_workers=args.num_threads) as executor:
                         for name, kpts, scores, desc in executor.map(worker, unique_images):
@@ -221,6 +191,19 @@ def main():
                         pbar.update(1)
 
     logger.info("Done generating pairs and features.")
+
+    if args.num_vis and args.num_vis > 0:
+        logger.info(f"Auto-visualizing {args.num_vis} pairs after creation...")
+        visualize(
+            "pairs",
+            data_dir=str(dataset_dir),
+            h5_path=str(dataset_dir / "exports/sp_features_slam.h5")
+            if (dataset_dir / "exports/sp_features_slam.h5").exists()
+            else None,
+            pairs_file="pairs_train.txt",
+            num_vis=args.num_vis,
+        )
+        logger.info("Pair visualization complete.")
 
 
 if __name__ == "__main__":

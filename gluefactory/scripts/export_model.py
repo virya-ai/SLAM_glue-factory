@@ -85,6 +85,26 @@ import torch.nn as nn
 # Used by both the TorchScript and ONNX backends below, so loading logic
 # can't drift between formats the way it did across the old two scripts.
 
+def _normalize_keypoints_superglue(kpts: torch.Tensor, size: torch.Tensor) -> torch.Tensor:
+    """Normalise pixel coords to roughly [-1, 1] the way SuperGlue does.
+
+    size : [B, 2] (width, height) in pixels.
+    """
+    shift = size.float() / 2
+    scale = size.float().max(1).values * 0.7
+    return (kpts - shift[:, None]) / scale[:, None, None]
+
+
+def _normalize_keypoints_lightglue(kpts: torch.Tensor, size: torch.Tensor) -> torch.Tensor:
+    """Normalise pixel coords with LightGlue's convention.
+
+    size : [B, 2] (width, height) in pixels.
+    """
+    shift = size.float() / 2
+    scale = size.float().max(-1).values / 2
+    return (kpts - shift[:, None]) / scale[:, None, None]
+
+
 def _strip_matcher_prefix(state_dict: dict) -> dict:
     """Strip the 'matcher.' prefix left by two_view_pipeline training."""
     if any(k.startswith("matcher.") for k in state_dict):
@@ -300,12 +320,6 @@ class _SuperGlueMatcher(nn.Module):
         self.n_sinkhorn = n_sinkhorn
         self.threshold = model.conf.filter_threshold
 
-    @staticmethod
-    def _norm_kpts(kpts: torch.Tensor, size: torch.Tensor) -> torch.Tensor:
-        shift = size.float() / 2
-        scale = size.float().max(1).values * 0.7
-        return (kpts - shift[:, None]) / scale[:, None, None]
-
     def forward(
         self,
         kpts0: torch.Tensor,
@@ -319,8 +333,8 @@ class _SuperGlueMatcher(nn.Module):
     ):
         from gluefactory_nonfree.superglue import log_optimal_transport, arange_like
 
-        kn0 = self._norm_kpts(kpts0, size0)
-        kn1 = self._norm_kpts(kpts1, size1)
+        kn0 = _normalize_keypoints_superglue(kpts0, size0)
+        kn1 = _normalize_keypoints_superglue(kpts1, size1)
 
         d0 = descs0.transpose(1, 2) + self.kenc(kn0, scores0)
         d1 = descs1.transpose(1, 2) + self.kenc(kn1, scores1)
@@ -460,12 +474,6 @@ class _LightGlueMatcher(nn.Module):
         self.n_layers = model.conf.n_layers
         self.threshold = model.conf.filter_threshold
 
-    @staticmethod
-    def _norm_kpts(kpts: torch.Tensor, size: torch.Tensor) -> torch.Tensor:
-        shift = size.float() / 2
-        scale = size.float().max(-1).values / 2
-        return (kpts - shift[:, None]) / scale[:, None, None]
-
     def forward(
         self,
         kpts0: torch.Tensor,
@@ -477,8 +485,8 @@ class _LightGlueMatcher(nn.Module):
     ):
         from gluefactory.models.matchers.lightglue import filter_matches
 
-        kn0 = self._norm_kpts(kpts0, size0)
-        kn1 = self._norm_kpts(kpts1, size1)
+        kn0 = _normalize_keypoints_lightglue(kpts0, size0)
+        kn1 = _normalize_keypoints_lightglue(kpts1, size1)
 
         d0 = self.input_proj(descs0)
         d1 = self.input_proj(descs1)
@@ -677,6 +685,7 @@ def export_superpoint_onnx(
         )
     print(f"[SP] saved  → {out_path}")
     _verify_onnx(out_path, {"image": dummy.numpy()}, ["scores", "descriptors"])
+    _embed_onnx_weights(out_path)
 
 
 # ── SuperGlue ────────────────────────────────────────────────────────────────
@@ -698,16 +707,6 @@ class SuperGlueONNX(nn.Module):
         self.n_sinkhorn = n_sinkhorn
         self.threshold  = model.conf.filter_threshold
 
-    @staticmethod
-    def _norm_kpts(kpts: torch.Tensor, size: torch.Tensor) -> torch.Tensor:
-        """Normalise pixel coords to roughly [-1, 1].
-
-        size : [B, 2]  (width, height) in pixels – same convention as SuperGlue.
-        """
-        shift = size.float() / 2                      # [B, 2]
-        scale = size.float().max(1).values * 0.7      # [B]
-        return (kpts - shift[:, None]) / scale[:, None, None]
-
     def forward(
         self,
         keypoints0:   torch.Tensor,   # [B, N, 2]
@@ -721,8 +720,8 @@ class SuperGlueONNX(nn.Module):
     ):
         from gluefactory_nonfree.superglue import log_optimal_transport, arange_like
 
-        kn0 = self._norm_kpts(keypoints0, size0)
-        kn1 = self._norm_kpts(keypoints1, size1)
+        kn0 = _normalize_keypoints_superglue(keypoints0, size0)
+        kn1 = _normalize_keypoints_superglue(keypoints1, size1)
 
         d0 = descriptors0 + self.kenc(kn0, scores0)   # [B, D, N]
         d1 = descriptors1 + self.kenc(kn1, scores1)
@@ -812,6 +811,7 @@ def export_superglue_onnx(
         {n: v.numpy() for n, v in zip(input_names, dummy_inputs)},
         output_names,
     )
+    _embed_onnx_weights(out_path)
 
 
 # ── LightGlue ────────────────────────────────────────────────────────────────
@@ -843,16 +843,6 @@ class LightGlueONNX(nn.Module):
         self.threshold  = model.conf.filter_threshold
         self.num_heads  = model.conf.num_heads
         self.head_dim   = model.conf.descriptor_dim // model.conf.num_heads
-
-    @staticmethod
-    def _norm_kpts(kpts: torch.Tensor, size: torch.Tensor) -> torch.Tensor:
-        """Normalise pixel coords to roughly [-1, 1].
-
-        size : [B, 2]  (width, height) in pixels.
-        """
-        shift = size.float() / 2                  # [B, 2]
-        scale = size.float().max(-1).values / 2    # [B]
-        return (kpts - shift[:, None]) / scale[:, None, None]
 
     @staticmethod
     def _rotate_half(x: torch.Tensor) -> torch.Tensor:
@@ -915,8 +905,8 @@ class LightGlueONNX(nn.Module):
     ):
         from gluefactory.models.matchers.lightglue import filter_matches
 
-        kn0 = self._norm_kpts(keypoints0, size0)
-        kn1 = self._norm_kpts(keypoints1, size1)
+        kn0 = _normalize_keypoints_lightglue(keypoints0, size0)
+        kn1 = _normalize_keypoints_lightglue(keypoints1, size1)
 
         d0 = self.input_proj(descriptors0.transpose(1, 2))
         d1 = self.input_proj(descriptors1.transpose(1, 2))
@@ -998,9 +988,26 @@ def export_lightglue_onnx(
         {n: v.numpy() for n, v in zip(input_names, dummy_inputs)},
         output_names,
     )
+    _embed_onnx_weights(out_path)
 
 
 # ── ONNX verification (optional, requires onnxruntime) ──────────────────────
+
+def _embed_onnx_weights(out_path: Path) -> None:
+    import onnx
+
+    if not out_path.exists():
+        return
+    probe = onnx.load(str(out_path), load_external_data=False)
+    if not any(n.data_location == onnx.TensorProto.EXTERNAL
+               for n in probe.graph.initializer):
+        return
+    model = onnx.load(str(out_path), load_external_data=True)
+    onnx.save_model(model, str(out_path), save_as_external_data=False)
+    data_file = out_path.with_name(out_path.name + ".data")
+    if data_file.exists():
+        data_file.unlink()
+
 
 def _verify_onnx(path: Path, inputs: dict, output_names: list) -> None:
     try:

@@ -11,7 +11,7 @@ We have fully developed, tested, and executed the entire bootstrapping pipeline 
 1. **Joint SuperPoint Loss Implementation (`superpoint_open.py`)**:
    - **Detector Loss**: Multi-class Cross-Entropy over an $8 \times 8$ grid mapping to 65 channels (64 cells + 1 dustbin for non-keypoints).
    - **Descriptor Loss**: Grid-based contrastive hinge loss comparing warped cell center descriptors to establish positive and negative similarity margins.
-2. **Homographic Adaptation Dataset Bootstrapping Script (`prepare_and_visualize_adaptation.py`)**:
+2. **Homographic Adaptation Dataset Bootstrapping Script (`prepare_slam_labels.py`)**:
    - Automates the $N$-warp Homographic Adaptation algorithm described in the original SuperPoint paper.
    - Projectively back-projects keypoints from warped images using $H^{-1}$ and aggregates them on the original image coordinate frame.
    - Correctly normalizes repeatability score confidence by tracking valid out-of-bounds warping regions.
@@ -42,7 +42,7 @@ The generated dataset verification visual is displayed below:
 All newly created and modified files are located in your workspace:
 
 *   **Model & Loss Module**: [superpoint_open.py](file:///home/tippeswamy/ws/thippeswamy/glue-factory/gluefactory/models/extractors/superpoint_open.py) — Contains the completed neural network architecture and joint Cross-Entropy + Hinge loss functions.
-*   **Adaptation & Visualization Tool**: [prepare_and_visualize_adaptation.py](file:///home/tippeswamy/ws/thippeswamy/glue-factory/gluefactory/scripts/prepare_and_visualize_adaptation.py) — The executable dataset generator script.
+*   **Adaptation & Visualization Tool**: [prepare_slam_labels.py](file:///home/tippeswamy/ws/thippeswamy/glue-factory/gluefactory/scripts/prepare_slam_labels.py) — The executable dataset generator script.
 *   **Custom Dataset Cache File**: `/home/tippeswamy/ws/thippeswamy/glue-factory/data/custom_dataset/exports/pseudo_labels.h5` — Generated pseudo-ground-truth labels.
 *   **Custom Training Configuration**: [superpoint_custom_homography.yaml](file:///home/tippeswamy/ws/thippeswamy/glue-factory/gluefactory/configs/superpoint_custom_homography.yaml) — Training hyperparameters, dataset loaders, and cache loader configurations.
 
@@ -67,7 +67,7 @@ data:
 ```
 <!-- slide -->
 ```python
-# Back-Projected Repeatability Normalization (prepare_and_visualize_adaptation.py)
+# Back-Projected Repeatability Normalization (prepare_slam_labels.py)
 accumulator = accumulator / np.maximum(global_trials, 1.0)
 ```
 ````

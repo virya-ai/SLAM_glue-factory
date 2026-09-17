@@ -15,7 +15,7 @@ from scipy.spatial.transform import Rotation as R
 _pose_ts_cache = {}
 
 
-def _get_pose_index(poses):
+def get_pose_index(poses):
     """Return (sorted_float_ts, sorted_key_list) for a poses dict.
 
     The index is cached per dict instance since pose matching is done for every
@@ -32,7 +32,7 @@ def _get_pose_index(poses):
     return result
 
 
-def _match_image_ts(image_name, ts_sorted, keys_sorted):
+def match_image_timestamp(image_name, ts_sorted, keys_sorted):
     """Return the pose key nearest to an image filename's timestamp.
 
     Handles filenames using ``SECONDS_NANOSECONDS`` (e.g. ``1786453855_234014570.png``)
@@ -159,8 +159,8 @@ def get_neighbor_relative_poses(
         sorted by translation distance (closest first).  Empty list if depth or
         pose data is unavailable.
     """
-    pose_idx = _get_pose_index(poses)
-    ts_key_i = _match_image_ts(image_name, *pose_idx)
+    pose_idx = get_pose_index(poses)
+    ts_key_i = match_image_timestamp(image_name, *pose_idx)
     if ts_key_i is None or ts_key_i not in poses:
         return []
     R_i, t_i = poses[ts_key_i]
@@ -176,7 +176,7 @@ def get_neighbor_relative_poses(
     for name_j in image_names:
         if name_j == image_name:
             continue
-        ts_key_j = _match_image_ts(name_j, *pose_idx)
+        ts_key_j = match_image_timestamp(name_j, *pose_idx)
         if ts_key_j is None or ts_key_j not in poses:
             continue
         R_j, t_j = poses[ts_key_j]

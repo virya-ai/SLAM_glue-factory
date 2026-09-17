@@ -9,17 +9,12 @@ This guide outlines the workflows for training and evaluating **SuperPoint**, **
 ```mermaid
 flowchart TD
     A["🔴 Raw SLAM Dataset<br/>images, depth, poses, calib"] --> B["1️⃣ Generate Pseudo-Labels<br/>→ pseudo_labels_slam.h5"]
-    B --> C{Step 2:<br/>Visualize Labels?}
-    C -->|Yes| C1["🎨 Visualize Pseudo-Labels<br/>→ kpt_labels/index.html"]
-    C1 --> D
-    C -->|Skip| D
-    D["3️⃣ Train SuperPoint<br/>→ checkpoint_best.tar"] --> E["4️⃣ Evaluate SuperPoint<br/>Keypoint metrics"]
+    B --> C1["2️⃣ Auto-Visualize Pseudo-Labels<br/>→ kpt_labels/index.html"]
+    C1 --> D["3️⃣ Train SuperPoint<br/>→ checkpoint_best.tar"]
+    D --> E["4️⃣ Evaluate SuperPoint<br/>Keypoint metrics"]
     E --> F["5️⃣ Generate Pairs & Features<br/>→ sp_features_slam.h5"]
-    F --> G{Step 6:<br/>Visualize Pairs?}
-    G -->|Yes| G1["🎨 Visualize Match Pairs<br/>→ pair_matches/index.html"]
-    G1 --> H
-    G -->|Skip| H
-    H --> H1["7️⃣ Train SuperGlue<br/>→ checkpoint_best.tar"]
+    F --> G1["6️⃣ Auto-Visualize Match Pairs<br/>→ pair_matches/index.html"]
+    G1 --> H["7️⃣ Train SuperGlue<br/>→ checkpoint_best.tar"]
     H --> H2["9️⃣ Train LightGlue<br/>→ checkpoint_best.tar"]
     H1 --> I1["8️⃣ Evaluate SuperGlue<br/>Matching metrics"]
     H2 --> I2["🔟 Evaluate LightGlue<br/>Matching metrics"]
@@ -35,8 +30,8 @@ flowchart TD
     M --> N["✅ Production Ready<br/>Models & Metrics"]
     style A fill:#fee
     style N fill:#efe
-    style C fill:#eef
-    style G fill:#eef
+    style C1 fill:#eef
+    style G1 fill:#eef
     style J fill:#eef
     style K fill:#eef
 ```
@@ -91,13 +86,13 @@ Generate ground-truth keypoint pseudo-labels by applying homographic and 3D proj
 
 ```bash
 # --- On Sample Dataset (quick test with 40:60 hybrid adaptation) ---
-python3 -m gluefactory.scripts.prepare_slam_superpoint \
+python3 -m gluefactory.scripts.prepare_slam_labels \
     --data_dir data/output/sample_slam \
     --num_warps 50 \
     --pose_ratio 0.6
 
 # --- On Full Dataset (with 40:60 hybrid adaptation) ---
-python3 -m gluefactory.scripts.prepare_slam_superpoint \
+python3 -m gluefactory.scripts.prepare_slam_labels \
     --data_dir data/output/slam \
     --num_warps 50 \
     --pose_ratio 0.6
@@ -114,21 +109,27 @@ python3 -m gluefactory.scripts.prepare_slam_superpoint \
 
 ---
 
-## 2. Visualize SuperPoint Dataset (Pseudo-Labels)
+## 2. Visualize SuperPoint Dataset (Pseudo-Labels) — Automatic
 
-Create an interactive HTML dashboard to visualize the generated pseudo-labels overlaid on the RGB frames.
+Visualization of pseudo-label keypoints is now **automatically** run by `prepare_slam_labels` after the H5 is created. By default 50 images are rendered; pass `--num_vis 0` to skip entirely, or `--num_vis 100` to render more.
 
 ```bash
-# --- On Sample Dataset ---
-python3 -m gluefactory.scripts.visualize_slam_dataset --source labels \
-    --data_dir data/output/sample_slam \
-    --max_items 50
+# Run auto-visualization (default 50 images)
+python3 -m gluefactory.scripts.prepare_slam_labels \
+    --data_dir data/output/slam --num_vis 50
 
-# --- On Full Dataset ---
-python3 -m gluefactory.scripts.visualize_slam_dataset --source labels \
-    --data_dir data/output/slam \
-    --max_items 100
+# Disable auto-visualization
+python3 -m gluefactory.scripts.prepare_slam_labels \
+    --data_dir data/output/slam --num_vis 0
 ```
+
+To re-run or inspect separately, use the unified visualization CLI:
+
+```bash
+python -m gluefactory.scripts.visualize_dataset labels \
+    --data_dir data/output/slam --num_vis 50
+```
+
 *   **Outputs**: `data/output/slam/visualizations/kpt_labels/index.html` (viewable in browser).
 
 ---
@@ -140,7 +141,7 @@ SuperPoint is trained self-supervised using the `homographies` dataset configura
 ```bash
 # --- Train on Full Dataset ---
 python3 -m gluefactory.train superpoint_slam_run \
-    --conf gluefactory/configs/superpoint_custom_homography_tranning.yaml \
+    --conf gluefactory/configs/superpoint_custom_homography.yaml \
     data.data_dir=output/slam \
     data.image_dir=images/rgb \
     data.image_list=image_list_train.txt \
@@ -148,7 +149,7 @@ python3 -m gluefactory.train superpoint_slam_run \
 
 # --- Overfit check on Sample Dataset ---
 python3 -m gluefactory.train superpoint_sample_run \
-    --conf gluefactory/configs/superpoint_custom_homography_tranning.yaml \
+    --conf gluefactory/configs/superpoint_custom_homography.yaml \
     --overfit \
     data.data_dir=output/sample_slam \
     data.image_dir=images/rgb \
@@ -201,21 +202,29 @@ python3 -m gluefactory.scripts.generate_slam_pairs \
 
 ---
 
-## 6. Visualize Match Pairs (Optional)
+## 6. Visualize Match Pairs — Automatic
 
-Visualize the overlapping match pairings side-by-side to verify alignment quality.
+Visualization of the overlapping match pairings is now **automatically** run by `generate_slam_pairs` after pairs and features are written. By default 50 pairs are rendered; pass `--num_vis 0` to skip, or `--num_vis 100` for more.
 
 ```bash
-# --- On Sample Dataset ---
-python3 -m gluefactory.scripts.visualize_slam_dataset --source pairs \
-    --data_dir data/output/sample_slam \
-    --max_items 50
+# Auto-visualize 50 pairs (default)
+python3 -m gluefactory.scripts.generate_slam_pairs \
+    --data_dir data/output/slam --extract_features \
+    --min_dist 0.0 --sp_weights outputs/training/superpoint_slam_run/checkpoint_best.tar \
+    --num_vis 50
 
-# --- On Full Dataset ---
-python3 -m gluefactory.scripts.visualize_slam_dataset --source pairs \
-    --data_dir data/output/slam \
-    --max_items 50
+# Disable auto-visualization
+python3 -m gluefactory.scripts.generate_slam_pairs \
+    --data_dir data/output/slam --extract_features --num_vis 0
 ```
+
+To re-run or inspect separately, use the unified visualization CLI:
+
+```bash
+python -m gluefactory.scripts.visualize_dataset pairs \
+    --data_dir data/output/slam --num_vis 50
+```
+
 *   **Outputs**: `data/output/slam/visualizations/pair_matches/index.html`.
 
 ---

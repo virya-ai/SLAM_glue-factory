@@ -7,15 +7,16 @@ Visualize trained SuperGlue and SuperPoint models from checkpoints.
 
 | File | Purpose |
 |------|---------|
-| `scripts/visualize_attention.py` | Main script — run this |
-| `gluefactory/visualization/attention_viz.py` | Helper functions (import from here if needed) |
+| `gluefactory.scripts.visualize_dataset` (kind `attention`) | Unified CLI — run this |
+| `gluefactory/visualization/datasetviz/attention.py` | `visualize_attention()` implementation |
+| `gluefactory/visualization/attention_viz.py` | Low-level helper functions (import from here if needed) |
 
 ---
 
 ## Quick Start
 
 ```bash
-python3 scripts/visualize_attention.py \
+python3 -m gluefactory.scripts.visualize_dataset attention \
   --superglue outputs/training/superglue_slam_run/checkpoint_best.tar \
   --superpoint outputs/training/superpoint_slam_run/checkpoint_best.tar \
   --img0 data/output/sample_slam/images/rgb/1775717079.407016.png \
@@ -36,6 +37,7 @@ python3 scripts/visualize_attention.py \
 | `--output_dir` | `outputs/visualizations/attention_maps` | Where PNGs are saved |
 | `--resize` | `512` | Max image dimension in pixels (`0` = no resize) |
 | `--layers` | `all` | Which GNN layers to plot individually (see below) |
+| `--num_vis` | `50` | Accepted for CLI consistency; unused by this kind (single image pair) |
 
 ### `--layers` options
 ```bash
@@ -77,7 +79,7 @@ All saved as PNG to `--output_dir`.
 
 **Fast run — just the key figures, no per-layer plots:**
 ```bash
-python3 scripts/visualize_attention.py \
+python3 -m gluefactory.scripts.visualize_dataset attention \
   --img0 <path> --img1 <path> \
   --output_dir outputs/visualizations/quick \
   --layers none
@@ -86,7 +88,7 @@ python3 scripts/visualize_attention.py \
 
 **Full run — every layer:**
 ```bash
-python3 scripts/visualize_attention.py \
+python3 -m gluefactory.scripts.visualize_dataset attention \
   --img0 <path> --img1 <path> \
   --output_dir outputs/visualizations/full \
   --layers all
@@ -95,7 +97,7 @@ python3 scripts/visualize_attention.py \
 
 **Inspect a specific layer pair (e.g. first and last round):**
 ```bash
-python3 scripts/visualize_attention.py \
+python3 -m gluefactory.scripts.visualize_dataset attention \
   --img0 <path> --img1 <path> \
   --layers "0,1,16,17"
 ```

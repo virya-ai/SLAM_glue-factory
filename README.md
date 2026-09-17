@@ -278,7 +278,7 @@ python -m gluefactory.train sp+lg_megadepth \
 Here the default batch size is 32. To speed up training on MegaDepth, we suggest to cache the local features before training (requires around 150 GB of disk space):
 ```bash
 # extract features
-python -m gluefactory.scripts.export_megadepth --method sp --num_workers 8
+python -m gluefactory.scripts.export_features megadepth --method sp --num_workers 8
 # run training with cached features
 python -m gluefactory.train sp+lg_megadepth \
     --conf gluefactory/configs/superpoint+lightglue_megadepth.yaml \
