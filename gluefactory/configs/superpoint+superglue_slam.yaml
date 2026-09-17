@@ -31,7 +31,7 @@ model:
     th_negative: 5
     th_epi: 5
   matcher:
-    name: gluefactory_nonfree.superglue
+    name: gluefactory.models.nonfree.superglue
     descriptor_dim: 256
     weights: indoor
     num_sinkhorn_iterations: 100

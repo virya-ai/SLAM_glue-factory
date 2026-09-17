@@ -1,6 +1,6 @@
 data:
     name: homographies
-    data_dir: output/dataset
+    data_dir: output/custom_dataset
     image_dir: images
     image_list: custom_image_list.txt
 

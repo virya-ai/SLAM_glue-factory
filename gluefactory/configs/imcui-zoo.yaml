@@ -3,7 +3,7 @@ model:
     extractor:
         name: null
     matcher:
-        name: gluefactory_nonfree.imcui
+        name: gluefactory.models.nonfree.imcui
         zoo_name: loftr
         detection_threshold: 0.015
         match_threshold: 0.0

@@ -41,7 +41,7 @@ configs = {
         "keys": ["keypoints", "descriptors", "keypoint_scores"],
         "gray": True,
         "conf": {
-            "name": "gluefactory_nonfree.superpoint",
+            "name": "gluefactory.models.nonfree.superpoint",
             "nms_radius": 3,
             "max_num_keypoints": n_kpts,
             "detection_threshold": 0.000,

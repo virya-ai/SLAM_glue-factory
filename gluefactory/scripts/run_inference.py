@@ -1,9 +1,6 @@
 """
 Run SuperPoint alone, or SuperPoint + SuperGlue/LightGlue, on images and
-visualize the result — the single entry point replacing the previously
-duplicated scripts/match_images.py, scripts/match_images_from_pt.py,
-scripts/export_interactive_matches.py, scripts/visualize_custom.py,
-gluefactory/scripts/infer_superpoint.py and infer_superglue.py.
+visualize the result.
 
 Two backends:
   --backend checkpoint   Load .tar training checkpoints via

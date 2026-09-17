@@ -23,7 +23,7 @@ def patch_superglue_attention(superglue_module):
 
     Call before inference; no model file is modified.
     """
-    import gluefactory_nonfree.superglue as sg_module
+    import gluefactory.models.nonfree.superglue as sg_module
 
     def patched_forward(self, query, key, value):
         b = query.size(0)

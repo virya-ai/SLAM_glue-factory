@@ -5,15 +5,11 @@ Two flavours:
                             match lines, zoom/pan, thresholds) driven by a
                             `matches_data.js` file. Used for SP+SuperGlue/
                             LightGlue pair inference (`gluefactory.scripts.run_inference`).
-2) `render_image_grid`  — a plain browsable grid of pre-rendered PNGs. Used
+  2) `render_image_grid`  — a plain browsable grid of pre-rendered PNGs. Used
                            for single-image keypoint visualizations and for
                            the unified cached-H5 SLAM dataset viewer
                            (`gluefactory.visualization.datasetviz`, kinds
                            `labels` / `pairs`, via `gluefactory.scripts.visualize_dataset`).
-
-Previously this HTML/CSS/JS was duplicated (and already diverging) across
-scripts/match_images.py, scripts/match_images_from_pt.py,
-gluefactory/scripts/visualize_slam_pairs.py and visualize_slam_labels.py.
 """
 
 import json

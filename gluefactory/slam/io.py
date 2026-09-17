@@ -120,20 +120,3 @@ def write_h5_features(h5_file, name, keypoints, scores, descriptors=None):
     grp.create_dataset("keypoint_scores", data=scores)
     if descriptors is not None:
         grp.create_dataset("descriptors", data=descriptors)
-
-
-def read_h5_features(h5_path, name):
-    """Read keypoints/scores and optionally descriptors for one image from H5.
-
-    Returns:
-        dict with "keypoints", "keypoint_scores", and optionally "descriptors".
-    """
-    with h5py.File(h5_path, "r") as f:
-        grp = f[name]
-        result = {
-            "keypoints": grp["keypoints"][...],
-            "keypoint_scores": grp["keypoint_scores"][...],
-        }
-        if "descriptors" in grp:
-            result["descriptors"] = grp["descriptors"][...]
-    return result

@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 _MATCHER_CONFS = {
     "none": lambda filter_threshold: {"name": None},
     "superglue": lambda filter_threshold: {
-        "name": "gluefactory_nonfree.superglue",
+        "name": "gluefactory.models.nonfree.superglue",
         "filter_threshold": filter_threshold,
     },
     "lightglue": lambda filter_threshold: {

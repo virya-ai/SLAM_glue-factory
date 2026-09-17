@@ -1,6 +1,6 @@
 data:
     name: homographies
-    data_dir: output/dataset
+    data_dir: output/custom_dataset
     image_dir: images
     image_list: custom_image_list.txt
     train_size: 300
@@ -15,7 +15,7 @@ data:
         name: lg
     load_features:
         do: True
-        path: "output/dataset/exports/custom_SP-k2048-nms4.h5"
+        path: "output/custom_dataset/exports/custom_SP-k2048-nms4.h5"
         collate: False
         max_num_keypoints: 512
         force_num_keypoints: True
@@ -29,7 +29,7 @@ model:
         th_positive: 3
         th_negative: 3
     matcher:
-        name: gluefactory_nonfree.superglue
+        name: gluefactory.models.nonfree.superglue
         weights: outdoor
         filter_threshold: 0.2
 train:

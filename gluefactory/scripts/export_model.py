@@ -136,7 +136,7 @@ def _build_superpoint(ckpt_path: Path) -> nn.Module:
 
 def _build_superglue(ckpt_path: Path) -> nn.Module:
     """Instantiate SuperGlue and load weights from a .tar checkpoint."""
-    from gluefactory_nonfree.superglue import SuperGlue
+    from gluefactory.models.nonfree.superglue import SuperGlue
     from omegaconf import OmegaConf
 
     ckpt = torch.load(ckpt_path, map_location="cpu")
@@ -331,7 +331,7 @@ class _SuperGlueMatcher(nn.Module):
         size0: torch.Tensor,
         size1: torch.Tensor,
     ):
-        from gluefactory_nonfree.superglue import log_optimal_transport, arange_like
+        from gluefactory.models.nonfree.superglue import log_optimal_transport, arange_like
 
         kn0 = _normalize_keypoints_superglue(kpts0, size0)
         kn1 = _normalize_keypoints_superglue(kpts1, size1)
@@ -718,7 +718,7 @@ class SuperGlueONNX(nn.Module):
         size0:        torch.Tensor,   # [B, 2]  (w, h)
         size1:        torch.Tensor,   # [B, 2]  (w, h)
     ):
-        from gluefactory_nonfree.superglue import log_optimal_transport, arange_like
+        from gluefactory.models.nonfree.superglue import log_optimal_transport, arange_like
 
         kn0 = _normalize_keypoints_superglue(keypoints0, size0)
         kn1 = _normalize_keypoints_superglue(keypoints1, size1)

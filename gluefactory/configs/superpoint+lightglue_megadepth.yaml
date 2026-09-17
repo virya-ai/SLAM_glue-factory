@@ -23,7 +23,7 @@ data:
 model:
     name: two_view_pipeline
     extractor:
-        name: gluefactory_nonfree.superpoint
+        name: gluefactory.models.nonfree.superpoint
         max_num_keypoints: 2048
         force_num_keypoints: True
         detection_threshold: 0.0

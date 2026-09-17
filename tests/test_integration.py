@@ -49,15 +49,14 @@ ExpectedResults = namedtuple("ExpectedResults", ("num_matches", "prec3px", "h_er
 
 class TestIntegration(unittest.TestCase):
     methods_to_test = [
-        ("superpoint+NN.yaml", "poselib", ExpectedResults(1300, 0.8, 1.0)),
         ("superpoint-open+NN.yaml", "poselib", ExpectedResults(1300, 0.8, 1.0)),
         (
-            "superpoint+lsd+gluestick.yaml",
-            "homography_est",
+            "superpoint_custom+lightglue_homography.yaml",
+            "poselib",
             ExpectedResults(1300, 0.8, 1.0),
         ),
         (
-            "superpoint+lightglue-official.yaml",
+            "superpoint+lightglue_megadepth.yaml",
             "poselib",
             ExpectedResults(1300, 0.8, 1.0),
         ),
