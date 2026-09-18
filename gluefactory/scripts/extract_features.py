@@ -8,15 +8,15 @@ mechanism. Supports both custom image-folder datasets and MegaDepth.
 
 Usage:
     # Custom dataset (image_folder):
-    python -m gluefactory.scripts.export_features my_dataset --method sp \
+    python -m gluefactory.scripts.extract_features my_dataset --method sp \
         --export_prefix sp_r1600_
 
     # Custom-trained SuperPoint weights:
-    python -m gluefactory.scripts.export_features my_dataset --method sp_custom \
+    python -m gluefactory.scripts.extract_features my_dataset --method sp_custom \
         --weights outputs/training/superpoint_custom_run/checkpoint_best.tar
 
     # MegaDepth (per-scene exports, optionally with keypoint depth):
-    python -m gluefactory.scripts.export_features megadepth --method sp_open \
+    python -m gluefactory.scripts.extract_features megadepth --method sp_open \
         --scenes train_scenes.txt --export_sparse_depth
 """
 

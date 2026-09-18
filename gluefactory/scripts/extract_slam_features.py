@@ -8,7 +8,7 @@ file with keypoints, keypoint_scores, and descriptors ready for SuperGlue
 training or evaluation.
 
 Usage:
-    python -m gluefactory.scripts.export_slam_features \\
+    python -m gluefactory.scripts.extract_slam_features \\
         --dataset         output/slam \\
         --pseudo_labels_h5 data/output/slam/exports/pseudo_labels_slam.h5 \\
         --weights         outputs/training/superpoint_slam_run/checkpoint_best.tar \\

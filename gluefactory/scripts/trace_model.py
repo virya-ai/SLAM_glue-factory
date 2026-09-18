@@ -55,20 +55,20 @@ script can work around — a case for `torch>=2.3` or the dynamo-based exporter
 export is unaffected.
 
 Usage:
-  python -m gluefactory.scripts.export_model --model superpoint --format pt \\
+  python -m gluefactory.scripts.trace_model --model superpoint --format pt \\
       --ckpt outputs/training/superpoint_slam_run/checkpoint_best.tar \\
       --out superpoint.pt
 
-  python -m gluefactory.scripts.export_model --model superglue --format onnx \\
+  python -m gluefactory.scripts.trace_model --model superglue --format onnx \\
       --ckpt outputs/training/superglue_slam_run/checkpoint_best.tar \\
       --out superglue.onnx
 
-  python -m gluefactory.scripts.export_model --model lightglue --format pt \\
+  python -m gluefactory.scripts.trace_model --model lightglue --format pt \\
       --ckpt outputs/training/lightglue_slam_run/checkpoint_best.tar \\
       --out lightglue.pt
 
   # --model/--format also accept short aliases: sp/sg/lg, pth (alias for pt)
-  python -m gluefactory.scripts.export_model --model lg --format pt \\
+  python -m gluefactory.scripts.trace_model --model lg --format pt \\
       --ckpt outputs/training/lightglue_slam_run/checkpoint_best.tar
 """
 

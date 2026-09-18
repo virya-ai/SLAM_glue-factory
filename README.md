@@ -102,7 +102,7 @@ python -m gluefactory.train sp+lg_megadepth \
 
 With cached features (saves GPU time, requires ~150 GB):
 ```bash
-python -m gluefactory.scripts.export_features megadepth --method sp --num_workers 8
+python -m gluefactory.scripts.extract_features megadepth --method sp --num_workers 8
 python -m gluefactory.train sp+lg_megadepth \
     --conf gluefactory/configs/superpoint+lightglue_megadepth.yaml \
     train.load_experiment=sp+lg_homography \

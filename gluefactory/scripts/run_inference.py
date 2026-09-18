@@ -6,7 +6,7 @@ Two backends:
   --backend checkpoint   Load .tar training checkpoints via
                          gluefactory.slam.matcher.SLAMMatcher.
   --backend exported     Load .pt TorchScript graphs produced by
-                         gluefactory.scripts.export_model, decoding
+                         gluefactory.scripts.trace_model, decoding
                          SuperPoint's dense heatmap with the same NMS/
                          threshold/top-k logic used at training time
                          (gluefactory.models.extractors.superpoint_open).
@@ -67,7 +67,7 @@ logger = logging.getLogger("run_inference")
 
 class ExportedMatcher:
     """Checkpoint-free inference backend: loads .pt TorchScript graphs from
-    gluefactory.scripts.export_model and decodes SuperPoint's dense heatmap
+    gluefactory.scripts.trace_model and decodes SuperPoint's dense heatmap
     with the real training-time NMS/threshold/top-k/descriptor-sampling
     logic, rather than a crude np.where + top-k re-implementation.
 

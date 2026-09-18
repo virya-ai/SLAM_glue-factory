@@ -12,7 +12,7 @@ by a dedicated module in ``gluefactory.visualization.datasetviz``:
     attention   SuperPoint/SuperGlue attention & feature maps -> PNGs
 
 All kinds share the ``--num_vis`` count (default 50; ``--num_vis 0`` disables).
-The dataset-creation scripts (prepare_slam_labels.py, generate_slam_pairs.py)
+The dataset-creation scripts (prepare_slam_labels.py, prepare_slam_pairs.py)
 call this machinery automatically after building their artifacts; this CLI is
 for manual re-runs or solo inspection.
 

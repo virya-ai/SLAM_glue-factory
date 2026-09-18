@@ -3,7 +3,7 @@
 Reads a pairs file (one pair per line, e.g. ``rgb/a.png rgb/b.png``) and an
 optional H5 keypoint cache, then draws both frames side by side with the
 cached keypoints and generates a browsable HTML grid. This is the visualization
-that ``gluefactory.scripts.generate_slam_pairs --extract_features`` auto-runs
+that ``gluefactory.scripts.prepare_slam_pairs --extract_features`` auto-runs
 unless ``--num_vis 0``.
 
 Usage:

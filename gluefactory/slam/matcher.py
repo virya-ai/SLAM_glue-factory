@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 # Matcher-specific config overrides. Both output "matches0"/"matches1"/
 # "matching_scores0"/"matching_scores1" from the model's pred dict — that
 # naming is shared between the two architectures already (see also
-# gluefactory/scripts/export_model.py, which relies on the same convention).
+# gluefactory/scripts/trace_model.py, which relies on the same convention).
 # "none" disables the matcher entirely (TwoViewPipeline skips it when
 # matcher.name is falsy) for extractor-only (SuperPoint-alone) inference.
 _MATCHER_CONFS = {

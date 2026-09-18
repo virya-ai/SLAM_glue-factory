@@ -9,7 +9,7 @@ exceeds a threshold. Writes pairs_train.txt and pairs_val.txt in the dataset
 directory, one pair per line formatted as "rgb/frame_a.png rgb/frame_b.png".
 
 Usage:
-    python -m gluefactory.scripts.generate_slam_pairs \\
+    python -m gluefactory.scripts.prepare_slam_pairs \\
         --data_dir    data/output/slam \\
         --poses_file  data/output/slam/poses.txt \\
         --modality    rgb \\
