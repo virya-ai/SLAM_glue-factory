@@ -1066,7 +1066,7 @@ def _parse_args():
              "(default: read from checkpoint, fall back to 50)",
     )
     p.add_argument(
-        "--opset", type=int, default=16,
+        "--opset", type=int, default=18,
         help="ONNX opset version (default: %(default)s)",
     )
     return p.parse_args()
