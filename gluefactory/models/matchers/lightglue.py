@@ -294,8 +294,8 @@ def filter_matches(scores: torch.Tensor, th: float):
     """obtain matches from a log assignment matrix [Bx M+1 x N+1]"""
     max0, max1 = scores[:, :-1, :-1].max(2), scores[:, :-1, :-1].max(1)
     m0, m1 = max0.indices, max1.indices
-    indices0 = torch.arange(m0.shape[1], device=m0.device)[None]
-    indices1 = torch.arange(m1.shape[1], device=m1.device)[None]
+    indices0 = (m0.new_ones(m0.shape[1]).cumsum(0) - 1)[None]
+    indices1 = (m1.new_ones(m1.shape[1]).cumsum(0) - 1)[None]
     mutual0 = indices0 == m1.gather(1, m0)
     mutual1 = indices1 == m0.gather(1, m1)
     max0_exp = max0.values.exp()
