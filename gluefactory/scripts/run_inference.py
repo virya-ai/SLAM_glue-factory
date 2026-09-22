@@ -21,6 +21,16 @@ Four output modes, combinable via --output all:
   png   static per-pair or per-image PNGs
   all   all of the above
 
+ONNX backend (recommended deployment path):
+  The .onnx files are hardware-neutral. onnxruntime picks the accelerator
+  at load time via --execution_provider, so the SAME model files run on
+  CPU, NVIDIA GPUs, or Intel GPUs:
+    cpu     CPUExecutionProvider        (pip install onnxruntime)
+    cuda    CUDAExecutionProvider       (pip install onnxruntime-gpu)
+    openvino OpenVINOExecutionProvider  (Intel iGPU/Arc, device_type=GPU;
+                                         pip install onnxruntime-openvino)
+    auto    first available of the above
+
 Usage:
     # SuperPoint + LightGlue, from training checkpoints, full dashboard
     MPLBACKEND=Agg python -m gluefactory.scripts.run_inference \\
@@ -36,6 +46,15 @@ Usage:
         --extractor_pt superpoint.pt \\
         --input data/output/slam/images/rgb \\
         --output png --output_dir outputs/sp_detections
+
+    # SuperPoint + LightGlue, single .onnx per model, any hardware
+    MPLBACKEND=Agg python -m gluefactory.scripts.run_inference \\
+        --backend onnx --matcher lightglue \\
+        --extractor_onnx models/superpoint.onnx \\
+        --matcher_onnx   models/lightglue.onnx \\
+        --execution_provider auto \\
+        --input data/MAP2/images/rgb \\
+        --output all --output_dir data/MAP2/visualizations/sp_lg_onnx
 """
 
 import argparse
@@ -163,6 +182,190 @@ class ExportedMatcher:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# ONNX backend (onnxruntime): one .onnx per model, hardware-neutral.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_EXECUTION_PROVIDERS = {
+    "cpu": ("CPUExecutionProvider", {}),
+    "cuda": ("CUDAExecutionProvider", {}),
+    "openvino": ("OpenVINOExecutionProvider", {"device_type": "GPU"}),
+}
+
+_PROVIDER_INSTALL = {
+    "CUDAExecutionProvider": "onnxruntime-gpu",
+    "OpenVINOExecutionProvider": "onnxruntime-openvino",
+    "CPUExecutionProvider": "onnxruntime",
+}
+
+
+def _resolve_providers(kind, available):
+    """Return an onnxruntime provider chain for `kind` (auto|cpu|cuda|openvino).
+
+    `available` is ort.get_available_providers(), which reflects the installed
+    onnxruntime build (plain, -gpu, or -openvino). CUDA targets NVIDIA GPUs,
+    OpenVINO (device_type=GPU) targets Intel iGPU/Arc on Linux.
+    """
+    if kind == "auto":
+        if "CUDAExecutionProvider" in available:
+            kind = "cuda"
+        elif "OpenVINOExecutionProvider" in available:
+            kind = "openvino"
+        else:
+            kind = "cpu"
+    name, opts = _EXECUTION_PROVIDERS[kind]
+    if name not in available:
+        raise SystemExit(
+            f"Execution provider {name!r} is not available in this onnxruntime build "
+            f"(available: {available}). Install via: pip install "
+            f"{_PROVIDER_INSTALL.get(name, 'onnxruntime')}"
+        )
+    if name == "CPUExecutionProvider":
+        return [("CPUExecutionProvider", {})]
+    return [(name, opts), ("CPUExecutionProvider", {})]
+
+
+class OnnxMatcher:
+    """onnxruntime backend: both networks are plain ONNX graphs, so the SAME
+    model files run on any hardware by choosing an execution provider at load
+    time (`--execution_provider`). SuperPoint's dense outputs are decoded with
+    the same threshold/top-k/descriptor-sampling logic as `ExportedMatcher`,
+    so results match the TorchScript path while staying device-agnostic.
+
+    Exposes the `extract` / `match_pair` / `match_directory` interface shared
+    by `SLAMMatcher` and `ExportedMatcher`.
+    """
+
+    def __init__(self, extractor_onnx, matcher_onnx=None, provider="auto",
+                 matcher="superglue", conf=None):
+        import onnxruntime as ort
+
+        matcher = matcher or "none"
+        self.has_matcher = matcher != "none"
+        conf = conf or {}
+        self.max_num_keypoints = conf.get("max_num_keypoints", 512)
+        self.detection_threshold = conf.get("detection_threshold", 0.005)
+        self.remove_borders = conf.get("remove_borders", 4)
+        self.filter_threshold = conf.get("filter_threshold", 0.01)
+
+        providers = _resolve_providers(provider, ort.get_available_providers())
+        logger.info(f"OnnxMatcher ({matcher}) execution providers: {providers}")
+
+        # num_kpts varies per image; disable the memory arena / pattern so
+        # onnxruntime doesn't try to reuse buffers across differently-shaped
+        # runs (its default fails with "Shape mismatch attempting to re-use
+        # buffer" when the dynamic axis actually changes between calls).
+        def _session(model_path):
+            so = ort.SessionOptions()
+            so.enable_cpu_mem_arena = False
+            so.enable_mem_pattern = False
+            sess = ort.InferenceSession(
+                str(model_path), sess_options=so, providers=providers
+            )
+            return sess
+
+        self._sp = _session(extractor_onnx)
+        self._sp_inputs = [i.name for i in self._sp.get_inputs()]
+
+        self._matcher = None
+        self._matcher_inputs = []
+        if self.has_matcher:
+            if matcher_onnx is None:
+                raise ValueError("matcher_onnx is required unless matcher='none'")
+            self._matcher = _session(matcher_onnx)
+            self._matcher_inputs = [i.name for i in self._matcher.get_inputs()]
+
+    def _extract(self, img_gray):
+        """Decode one image: keypoints [N,2], scores [N], descriptors [1,256,N].
+
+        `scores`/`descriptors` from the ONNX SuperPoint graph are already
+        NMS-filtered, border-zeroed and L2-normalized (baked at export time);
+        here we apply detection threshold, top-k and descriptor sampling.
+        """
+        t = (img_gray.astype(np.float32) / 255.0)[None, None]  # [1,1,H,W]
+        scores, descriptors = self._sp.run(None, {self._sp_inputs[0]: t})
+
+        scores = np.asarray(scores)[0]  # [H,W]
+        if self.remove_borders:
+            p = self.remove_borders
+            scores[:p] = -1.0
+            scores[-p:] = -1.0
+            scores[:, :p] = -1.0
+            scores[:, -p:] = -1.0
+
+        idxs = np.where(scores > self.detection_threshold)
+        if len(idxs[0]) == 0:
+            return (
+                np.zeros((0, 2), dtype=np.float32),
+                np.zeros((0,), dtype=np.float32),
+                np.zeros((1, 256, 0), dtype=np.float32),
+                t,
+            )
+        kpts = np.stack(idxs[-2:], axis=-1)[:, ::-1].astype(np.float32)  # [N,2] (x,y)
+        kscores = scores[idxs].astype(np.float32)
+
+        if len(kpts) > self.max_num_keypoints:
+            order = np.argsort(-kscores, kind="stable")[: self.max_num_keypoints]
+            kpts, kscores = kpts[order], kscores[order]
+
+        with torch.no_grad():
+            desc = sample_descriptors(
+                torch.from_numpy(kpts[None]),
+                torch.from_numpy(np.asarray(descriptors)),
+                s=8,
+            )  # [1,256,N]
+        return kpts, kscores, desc, t
+
+    def extract(self, img_gray):
+        """Run the extractor alone on a single image (no matcher forward)."""
+        kpts, kscores, _, _ = self._extract(img_gray)
+        return {"keypoints": kpts, "scores": kscores}
+
+    def match_pair(self, img0_gray, img1_gray):
+        kpts0, sc0, desc0, _ = self._extract(img0_gray)
+        kpts1, sc1, desc1, _ = self._extract(img1_gray)
+        n0 = len(kpts0)
+
+        if not self.has_matcher:
+            matches0 = np.full(n0, -1, dtype=np.int64)
+            mscores0 = np.zeros(n0, dtype=np.float32)
+        else:
+            if n0 == 0 or len(kpts1) == 0:
+                matches0 = np.full(n0, -1, dtype=np.int64)
+                mscores0 = np.zeros(n0, dtype=np.float32)
+            else:
+                # Exported with separate num_kpts0 / num_kpts1 dynamic axes, so
+                # both views may keep their real (possibly unequal) lengths.
+                h, w = img0_gray.shape
+                size = np.array([[w, h]], dtype=np.float32)
+                feed = {
+                    "keypoints0": kpts0[None].astype(np.float32),
+                    "keypoints1": kpts1[None].astype(np.float32),
+                    "descriptors0": desc0.numpy().astype(np.float32),
+                    "descriptors1": desc1.numpy().astype(np.float32),
+                    "size0": size,
+                    "size1": size,
+                }
+                if "scores0" in self._matcher_inputs:  # SuperGlue graphs
+                    feed["scores0"] = sc0[None].astype(np.float32)
+                    feed["scores1"] = sc1[None].astype(np.float32)
+                out = self._matcher.run(None, feed)
+                matches0 = np.asarray(out[0])[0]
+                mscores0 = np.asarray(out[2])[0]
+
+        return {
+            "keypoints0": kpts0,
+            "keypoints1": kpts1,
+            "scores0": sc0,
+            "scores1": sc1,
+            "matches0": matches0,
+            "mscores0": mscores0,
+        }
+
+    def match_directory(self, input_dir, max_pairs=None, resize=0):
+        return run_match_directory(self, self.filter_threshold, input_dir, max_pairs, resize)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Extractor-only (--matcher none) driver: one pass per image, not per pair.
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -216,7 +419,9 @@ def _run_extractor_only(backend, input_path, output_dir, outputs, resize, max_pa
 # Pair (--matcher superglue|lightglue) driver
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _run_pairs(backend, input_path, output_dir, outputs, resize, max_pairs, matcher_name):
+def _run_pairs(
+    backend, input_path, output_dir, outputs, resize, max_pairs, matcher_name
+):
     results = backend.match_directory(input_path, max_pairs=max_pairs, resize=resize)
     if not results:
         logger.error("No pairs were matched.")
@@ -275,7 +480,8 @@ def _run_pairs(backend, input_path, output_dir, outputs, resize, max_pairs, matc
         logger.info(
             f"Pair {idx}: {r['name0']} ↔ {r['name1']}  "
             f"kpts {m['total_kpts0']}/{m['total_kpts1']}  "
-            f"matches {m['num_matches']} ({m['match_ratio']:.1%})  avg {m['avg_mscore']:.2f}"
+            f"matches {m['num_matches']} ({m['match_ratio']:.1%})  "
+            f"avg {m['avg_mscore']:.2f}"
         )
         records.append(record)
 
@@ -302,20 +508,35 @@ def _parse_args():
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--backend", choices=["checkpoint", "exported"], default="checkpoint")
+    parser.add_argument(
+        "--backend", choices=["checkpoint", "exported", "onnx"], default="checkpoint"
+    )
     parser.add_argument("--matcher", choices=["none", "superglue", "lightglue"],
                          default="superglue")
 
     parser.add_argument("--extractor_ckpt", type=str, default=None,
-                         help="SuperPoint training checkpoint (.tar); required for --backend checkpoint")
+                         help="SuperPoint training checkpoint (.tar); required for "
+                              "--backend checkpoint")
     parser.add_argument("--matcher_ckpt", type=str, default=None,
-                         help="Matcher training checkpoint (.tar); required for --backend checkpoint "
-                              "unless --matcher none")
+                         help="Matcher training checkpoint (.tar); required for "
+                              "--backend checkpoint unless --matcher none")
     parser.add_argument("--extractor_pt", type=str, default=None,
-                         help="Exported SuperPoint model (.pt); required for --backend exported")
+                         help="Exported SuperPoint model (.pt); required for "
+                              "--backend exported")
     parser.add_argument("--matcher_pt", type=str, default=None,
-                         help="Exported matcher model (.pt); required for --backend exported "
+                         help="Exported matcher model (.pt); required for "
+                              "--backend exported unless --matcher none")
+    parser.add_argument("--extractor_onnx", type=str, default=None,
+                         help="SuperPoint model (.onnx); required for --backend onnx")
+    parser.add_argument("--matcher_onnx", type=str, default=None,
+                         help="Matcher model (.onnx); required for --backend onnx "
                               "unless --matcher none")
+    parser.add_argument(
+        "--execution_provider", choices=["auto", "cpu", "cuda", "openvino"],
+        default="auto",
+        help="onnxruntime execution provider (--backend onnx): auto picks "
+             "CUDA > OpenVINO > CPU from what is installed.",
+    )
 
     parser.add_argument("--input", type=str, required=True,
                          help="Image directory, single image, or 'img0.png,img1.png'")
@@ -352,6 +573,15 @@ def main():
             args.matcher_ckpt, args.extractor_ckpt, device=args.device, conf=conf,
             matcher=args.matcher,
         )
+    elif args.backend == "onnx":
+        if not args.extractor_onnx:
+            raise SystemExit("--extractor_onnx is required for --backend onnx")
+        if args.matcher != "none" and not args.matcher_onnx:
+            raise SystemExit("--matcher_onnx is required unless --matcher none")
+        backend = OnnxMatcher(
+            args.extractor_onnx, args.matcher_onnx,
+            provider=args.execution_provider, matcher=args.matcher, conf=conf,
+        )
     else:
         if not args.extractor_pt:
             raise SystemExit("--extractor_pt is required for --backend exported")
@@ -367,9 +597,13 @@ def main():
     max_pairs = args.max_pairs if args.max_pairs > 0 else None
 
     if args.matcher == "none":
-        _run_extractor_only(backend, args.input, output_dir, outputs, args.resize, max_pairs)
+        _run_extractor_only(
+            backend, args.input, output_dir, outputs, args.resize, max_pairs
+        )
     else:
-        _run_pairs(backend, args.input, output_dir, outputs, args.resize, max_pairs, args.matcher)
+        _run_pairs(
+            backend, args.input, output_dir, outputs, args.resize, max_pairs, args.matcher
+        )
 
 
 if __name__ == "__main__":
