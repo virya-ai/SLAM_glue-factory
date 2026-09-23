@@ -1,0 +1,44 @@
+# Configuration for `python -m gluefactory.scripts.prepare_map_dataset`.
+# Any key here overrides the built-in defaults; every value can also be
+# overridden from the command line.
+
+db: data/Map1/Map1.db
+data_dir: data/MAP2
+
+keep_all: false          # true = extract every node, ignore frame selection
+write_depth: true        # decode+save depth as uint16(mm) PNG
+write_calib: true        # decode+save per-image OpenCV-style calib YAML
+clean: false             # wipe data_dir before extracting
+verbose: false
+seed: 42
+
+frame:
+  mode: bins             # bins | minmax | all | stride
+  stride: 10
+  min_trans: 0.02        # meters; bins gate + minmax threshold
+  min_rot: 0.25          # degrees; bins gate + minmax threshold
+  # bins: consecutive frame transitions are binned on (motion, rotation),
+  # each cell sampled up to `samples_per_bin` evenly.
+  trans_bins: [0.02, 0.1, 0.25, 0.5, 1.0, 2.0]
+  rot_bins: [0, 2, 5, 10, 20, 45]
+  samples_per_bin: 300
+  val_ratio: 0.17        # frames split into train/val before any pairing
+  max_frames: 0          # 0 = unlimited
+
+pairs:
+  candidates: links      # links (RTAB-Map graph) | spatial | all
+  link_types: [0, 1, 2]  # 0=neighbor 1=global closure 2=local closure
+  spatial_radius: 0.75   # meters (spatial mode)
+  min_dist: 0.05         # meters
+  max_dist: 2.0          # meters
+  min_angle: 0.0         # degrees
+  max_angle: 45.0        # degrees
+  min_overlap: 0.0       # depth covisibility gate (0 = disabled)
+  # selected pairs are binned on (distance, rotation); each cell sampled
+  # up to `samples_per_bin` evenly -> balanced pair distribution.
+  trans_bins: [0.05, 0.25, 0.75, 1.5, 2.5]
+  rot_bins: [0, 3, 8, 15, 30, 45]
+  samples_per_bin: 120
+  max_pairs_per_image: 200
+  max_pairs: 0           # 0 = unlimited
+  val_ratio: 0.17        # informational (train/val split is frame-first)
