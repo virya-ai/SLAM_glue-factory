@@ -90,7 +90,7 @@ DEFAULTS = {
     # script works from any working directory.  Relative values in the
     # config file or CLI are also resolved against PROJECT_ROOT.
     "db": str(PROJECT_ROOT / "data/Map1/Map1.db"),
-    "data_dir": str(PROJECT_ROOT / "data/MAP1"),
+    "data_dir": str(PROJECT_ROOT / "data/Map1"),
     "keep_all": False,
     "write_depth": True,
     "write_calib": True,
