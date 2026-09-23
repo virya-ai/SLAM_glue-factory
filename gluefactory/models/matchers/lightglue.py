@@ -109,24 +109,35 @@ class Attention(nn.Module):
             torch.backends.cuda.enable_flash_sdp(allow_flash)
 
     def forward(self, q, k, v, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        # A boolean mask with a fully-False row (e.g. a padded query attending
+        # to nothing) makes softmax compute 0/0 = NaN for that row. Even though
+        # the NaN is masked out of the forward output below, softmax's backward
+        # formula (attn * (grad - sum(grad * attn))) multiplies the correctly
+        # zeroed gradient by the NaN forward value itself, re-introducing NaN
+        # gradients that poison the whole model after one optimizer step. Using
+        # a finite large-negative additive mask instead of a boolean one keeps
+        # such rows well-defined (uniform softmax) in both forward and backward.
+        if mask is not None and mask.dtype == torch.bool:
+            mask = torch.zeros_like(mask, dtype=q.dtype).masked_fill(~mask, -1e4)
         if self.enable_flash and q.device.type == "cuda":
             # use torch 2.0 scaled_dot_product_attention with flash
             if FLASH_AVAILABLE:
                 args = [x.half().contiguous() for x in [q, k, v]]
-                v = F.scaled_dot_product_attention(*args, attn_mask=mask).to(q.dtype)
-                return v if mask is None else v.nan_to_num()
+                m = mask.half() if mask is not None else None
+                v = F.scaled_dot_product_attention(*args, attn_mask=m).to(q.dtype)
+                return v
         elif FLASH_AVAILABLE:
             args = [x.contiguous() for x in [q, k, v]]
             v = F.scaled_dot_product_attention(*args, attn_mask=mask)
-            return v if mask is None else v.nan_to_num()
+            return v
         else:
             s = q.shape[-1] ** -0.5
             sim = torch.einsum("...id,...jd->...ij", q, k) * s
             if mask is not None:
-                sim.masked_fill(~mask, -float("inf"))
+                sim = sim + mask
             attn = F.softmax(sim, -1)
             out = torch.einsum("...ij,...jd->...id", attn, v)
-            return out if mask is None else out.nan_to_num()
+            return out
 
 
 class SelfBlock(nn.Module):
@@ -208,13 +219,18 @@ class CrossBlock(nn.Module):
             qk0, qk1 = qk0 * self.scale**0.5, qk1 * self.scale**0.5
             sim = torch.einsum("bhid, bhjd -> bhij", qk0, qk1)
             if mask is not None:
-                sim = sim.masked_fill(~mask, -float("inf"))
+                # See Attention.forward: use a finite additive mask (not -inf)
+                # so a fully-masked row (padded query) has a well-defined
+                # softmax and doesn't leak NaN gradients through softmax's
+                # backward pass even after nan_to_num on the forward output.
+                add_mask = torch.zeros_like(mask, dtype=sim.dtype).masked_fill(
+                    ~mask, -1e4
+                )
+                sim = sim + add_mask
             attn01 = F.softmax(sim, dim=-1)
             attn10 = F.softmax(sim.transpose(-2, -1).contiguous(), dim=-1)
             m0 = torch.einsum("bhij, bhjd -> bhid", attn01, v1)
             m1 = torch.einsum("bhji, bhjd -> bhid", attn10.transpose(-2, -1), v0)
-            if mask is not None:
-                m0, m1 = m0.nan_to_num(), m1.nan_to_num()
         m0, m1 = self.map_(lambda t: t.transpose(1, 2).flatten(start_dim=-2), m0, m1)
         m0, m1 = self.map_(self.to_out, m0, m1)
         x0 = x0 + self.ffn(torch.cat([x0, m0], -1))
@@ -249,9 +265,9 @@ class TransformerLayer(nn.Module):
         mask = mask0 & mask1.transpose(-1, -2)
         mask0 = mask0 & mask0.transpose(-1, -2)
         mask1 = mask1 & mask1.transpose(-1, -2)
-        desc0 = self.self_attn(desc0, encoding0, mask0)
-        desc1 = self.self_attn(desc1, encoding1, mask1)
-        return self.cross_attn(desc0, desc1, mask)
+        desc0 = self.self_attn(desc0, encoding0, mask0[:, None])
+        desc1 = self.self_attn(desc1, encoding1, mask1[:, None])
+        return self.cross_attn(desc0, desc1, mask[:, None])
 
 
 def sigmoid_log_double_softmax(
