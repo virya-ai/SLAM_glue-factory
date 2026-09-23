@@ -78,6 +78,7 @@ class CacheLoader(BaseModel):
         self.padding_fn = conf.padding_fn
         if self.padding_fn is not None:
             self.padding_fn = eval(self.padding_fn)
+        self.dynamic_padding = conf.padding_length == "dynamic"
         self.numeric_dtype = {
             None: None,
             "float16": torch.float16,
@@ -152,10 +153,19 @@ class CacheLoader(BaseModel):
                             else data[f"view{view_idx}"]["scales"]
                         )
                         pred[k] = pred[k] * scales[i]
+            preds.append(pred)
+        if self.dynamic_padding:
+            # Padding length = max number of real keypoints in this batch,
+            # so each sample is only padded to fit the batch, never to an
+            # arbitrary large fixed length. Padded entries still carry zero
+            # scores and are masked out of every loss / visualization.
+            real_counts = [p["keypoints"].shape[-2] for p in preds]
+            dynamic_length = max(real_counts)
+            preds = [self.padding_fn(p, dynamic_length) for p in preds]
+        else:
             # use this function to fix number of keypoints etc.
             if self.padding_fn is not None:
-                pred = self.padding_fn(pred, self.conf.padding_length)
-            preds.append(pred)
+                preds = [self.padding_fn(p, self.conf.padding_length) for p in preds]
         if self.conf.collate:
             return batch_to_device(collate(preds), device)
         else:

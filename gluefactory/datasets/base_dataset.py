@@ -157,6 +157,10 @@ class BaseDataset(metaclass=ABCMeta):
         """To be implemented by the child class."""
         raise NotImplementedError
 
+    def get_collate_fn(self):
+        """Hook so subclasses can override the batch collate function."""
+        return collate
+
     def get_data_loader(self, split, shuffle=None, pinned=False, distributed=False):
         """Return a data loader for a given split."""
         assert split in ["train", "val", "test"]
@@ -182,7 +186,7 @@ class BaseDataset(metaclass=ABCMeta):
             shuffle=shuffle,
             sampler=sampler,
             pin_memory=pinned,
-            collate_fn=collate,
+            collate_fn=self.get_collate_fn(),
             num_workers=num_workers,
             worker_init_fn=worker_init_fn,
             prefetch_factor=self.conf.prefetch_factor,
@@ -210,5 +214,5 @@ class BaseDataset(metaclass=ABCMeta):
             num_workers=num_workers,
             sampler=sampler,
             worker_init_fn=worker_init_fn,
-            collate_fn=collate,
+            collate_fn=self.get_collate_fn(),
         )

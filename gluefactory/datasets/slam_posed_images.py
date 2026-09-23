@@ -11,13 +11,40 @@ import torch
 from scipy.spatial.transform import Rotation as R
 
 from ..geometry.wrappers import Camera, Pose
-from ..models.cache_loader import CacheLoader
+from ..models.cache_loader import CacheLoader, pad_local_features
 from ..settings import DATA_PATH
 from ..utils.image import ImagePreprocessor
 from ..utils.tools import fork_rng
-from .base_dataset import BaseDataset
+from .base_dataset import BaseDataset, collate as base_collate
 
 logger = logging.getLogger(__name__)
+
+def dynamic_collate(batch):
+    """Batch-level dynamic padding for per-view cached features.
+
+    The SLAM dataset loads one view at a time (CacheLoader collate=False), so
+    each sample keeps its natural number of keypoints. Here we pad every view
+    in the batch to the maximum real keypoint count before stacking.
+    """
+    if not isinstance(batch, list) or len(batch) == 0:
+        return batch
+
+    views = []
+    for sample in batch:
+        if "cache" in sample:
+            views.append(sample["cache"])
+        for key in ("view0", "view1"):
+            if key in sample and "cache" in sample[key]:
+                views.append(sample[key]["cache"])
+
+    real_views = [c for c in views if "keypoints" in c and c["keypoints"].numel() > 0]
+    if not real_views:
+        return base_collate(batch)
+
+    max_kp = max(c["keypoints"].shape[0] for c in real_views)
+    for cache in real_views:
+        pad_local_features(cache, max_kp)
+    return base_collate(batch)
 
 class SlamPosedDataset(BaseDataset):
     default_conf = {
@@ -51,6 +78,15 @@ class SlamPosedDataset(BaseDataset):
 
     def _init(self, conf):
         pass
+
+    def get_collate_fn(self):
+        if (
+            self.conf.load_features.do
+            and isinstance(self.conf.load_features.padding_length, str)
+            and self.conf.load_features.padding_length == "dynamic"
+        ):
+            return dynamic_collate
+        return base_collate
         
     def get_dataset(self, split):
         return _SlamPairDataset(self.conf, split)

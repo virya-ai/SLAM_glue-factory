@@ -336,6 +336,9 @@ class SuperPoint(BaseModel):
                     "Ensure load_features.do is enabled and populated."
                 )
             gt_kpts = cache["keypoints"]
+            gt_kpts = [
+                k[m] for k, m in zip(gt_kpts, cache.get("keypoint_scores", [None] * len(gt_kpts)) > 0)
+            ] if "keypoint_scores" in cache else gt_kpts
             targets = keypoints_to_grid(gt_kpts, (h, w), logits.device)
             if use_ds:
                 depth = data[f"view{i}"]["depth"]

@@ -65,8 +65,13 @@ def make_keypoint_figures(pred_, data_, n_pairs=2):
     view0, view1 = data["view0"], data["view1"]
     n_pairs = min(n_pairs, view0["image"].shape[0])
 
-    # Extract keypoints from both views
+    # Extract keypoints from both views, keeping only real (non-padded) ones
     kp0, kp1 = pred["keypoints0"], pred["keypoints1"]
+    sc0, sc1 = pred.get("keypoint_scores0"), pred.get("keypoint_scores1")
+    if sc0 is not None:
+        kp0 = [k[s > 0] for k, s in zip(kp0, sc0)]
+    if sc1 is not None:
+        kp1 = [k[s > 0] for k, s in zip(kp1, sc1)]
 
     for i in range(n_pairs):
         images.append(
