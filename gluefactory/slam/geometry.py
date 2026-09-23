@@ -25,7 +25,13 @@ def get_pose_index(poses):
     if key in _pose_ts_cache:
         return _pose_ts_cache[key]
     keys = list(poses.keys())
-    ts = np.array([float(t) for t in keys])
+    # Pose keys use the same SECONDS_NANOSECONDS underscore format as image
+    # filenames (e.g. "1786453855_234014570"). float() silently accepts
+    # underscores as digit-group separators (PEP 515) instead of raising, so
+    # without this replace() every key parses as one huge, wrong integer
+    # (~1e18) instead of ~1.786e9 seconds -- collapsing every image's nearest-
+    # timestamp match onto the same single pose.
+    ts = np.array([float(t.replace("_", ".")) for t in keys])
     order = np.argsort(ts)
     result = (ts[order], [keys[i] for i in order])
     _pose_ts_cache[key] = result
