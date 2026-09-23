@@ -115,7 +115,7 @@ class CacheLoader(BaseModel):
                 grp = hfile[Path(name).name]
             else:
                 found = False
-                for modality in ["reflectivity", "nearir", "signal", "range"]:
+                for modality in ["reflectivity", "nearir", "signal", "range", "rgb"]:
                     candidate = f"{modality}/{name}"
                     if candidate in hfile:
                         grp = hfile[candidate]

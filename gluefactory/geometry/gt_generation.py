@@ -37,6 +37,14 @@ def gt_matches_from_pose_depth(
         d0, valid0 = sample_depth(kp0, depth0)
         d1, valid1 = sample_depth(kp1, depth1)
 
+    # Padded keypoints (zero scores from dynamic padding) must not take part in
+    # ground truth generation: invalid depth makes them neither positive nor
+    # negative, and they end up marked as IGNORE_FEATURE in the matches.
+    if "keypoint_scores0" in data:
+        valid0 = valid0 & data["keypoint_scores0"] > 0
+    if "keypoint_scores1" in data:
+        valid1 = valid1 & data["keypoint_scores1"] > 0
+
     kp0_1, visible0 = project(
         kp0, d0, depth1, camera0, camera1, T_0to1, valid0, ccth=cc_th
     )
@@ -87,8 +95,12 @@ def gt_matches_from_pose_depth(
         epi_dist = torch.where(mask_ignore, epi_dist, inf)
         exclude0 = epi_dist.min(-1).values > neg_th
         exclude1 = epi_dist.min(-2).values > neg_th
-        m0 = torch.where((~valid0) & exclude0, ignore.new_tensor(-1), m0)
-        m1 = torch.where((~valid1) & exclude1, ignore.new_tensor(-1), m1)
+        # Padded keypoints (zero scores, already invalid) must stay IGNORE_FEATURE,
+        # not become unmatched (which would pollute the negative loss).
+        real0 = data.get("keypoint_scores0", torch.ones_like(valid0)) > 0
+        real1 = data.get("keypoint_scores1", torch.ones_like(valid1)) > 0
+        m0 = torch.where((~valid0) & exclude0 & real0, ignore.new_tensor(-1), m0)
+        m1 = torch.where((~valid1) & exclude1 & real1, ignore.new_tensor(-1), m1)
 
     return {
         "assignment": positive,

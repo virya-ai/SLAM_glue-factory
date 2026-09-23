@@ -125,7 +125,8 @@ class Attention(nn.Module):
             if mask is not None:
                 sim.masked_fill(~mask, -float("inf"))
             attn = F.softmax(sim, -1)
-            return torch.einsum("...ij,...jd->...id", attn, v)
+            out = torch.einsum("...ij,...jd->...id", attn, v)
+            return out if mask is None else out.nan_to_num()
 
 
 class SelfBlock(nn.Module):
@@ -469,6 +470,18 @@ class LightGlue(nn.Module):
         encoding0 = self.posenc(kpts0)
         encoding1 = self.posenc(kpts1)
 
+        # Mask out padded keypoints (zero scores from dynamic padding) so they
+        # do not take part in the GNN attention. When keypoint scores are not
+        # available every keypoint is considered real.
+        if "keypoint_scores0" in data:
+            mask0 = (data["keypoint_scores0"] > 0)[:, :, None]
+        else:
+            mask0 = None
+        if "keypoint_scores1" in data:
+            mask1 = (data["keypoint_scores1"] > 0)[:, :, None]
+        else:
+            mask1 = None
+
         # GNN + final_proj + assignment
         do_early_stop = self.conf.depth_confidence > 0 and not self.training
         do_point_pruning = self.conf.width_confidence > 0 and not self.training
@@ -490,10 +503,14 @@ class LightGlue(nn.Module):
                     desc1,
                     encoding0,
                     encoding1,
+                    mask0,
+                    mask1,
                     use_reentrant=False,  # Recommended by torch, default was True
                 )
             else:
-                desc0, desc1 = self.transformers[i](desc0, desc1, encoding0, encoding1)
+                desc0, desc1 = self.transformers[i](
+                    desc0, desc1, encoding0, encoding1, mask0, mask1
+                )
             if self.training or i == self.conf.n_layers - 1:
                 all_desc0.append(desc0)
                 all_desc1.append(desc1)
