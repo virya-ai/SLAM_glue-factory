@@ -120,7 +120,7 @@ def decode_depth(depth_blob):
 def decode_calibration(calibration_blob):
     """Decode the 372-byte packed OpenCV calibration into a dict.
 
-    Offsets (double-checked against funcs.cpp and an existing MAP2 calib
+    Offsets (double-checked against funcs.cpp and an existing MAP calib
     yaml): 44-byte int32 header (width=+16, height=+20), then K (9 f64),
     D (5 f64), R_rect (9 f64), P (12 f64), local_transform (12 f32).
     """

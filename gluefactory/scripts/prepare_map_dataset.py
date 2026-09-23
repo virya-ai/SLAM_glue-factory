@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Build an end-to-end RGB-D SLAM dataset (glue-factory MAP2 layout) from a
+Build an end-to-end RGB-D SLAM dataset from a
 RTAB-Map ``.db`` database.
 
 Selection is config-driven and geometrically balanced:
@@ -90,7 +90,7 @@ DEFAULTS = {
     # script works from any working directory.  Relative values in the
     # config file or CLI are also resolved against PROJECT_ROOT.
     "db": str(PROJECT_ROOT / "data/Map1/Map1.db"),
-    "data_dir": str(PROJECT_ROOT / "data/MAP2"),
+    "data_dir": str(PROJECT_ROOT / "data/MAP1"),
     "keep_all": False,
     "write_depth": True,
     "write_calib": True,
@@ -139,7 +139,7 @@ def deep_merge(base, overrides):
 
 def build_parser():
     p = argparse.ArgumentParser(
-        description="Build a MAP2 SLAM dataset from an RTAB-Map .db",
+        description="Build a SLAM dataset from an RTAB-Map .db",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument("--db", default=None)
