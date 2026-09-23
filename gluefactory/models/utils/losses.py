@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 from omegaconf import OmegaConf
 
+from .depth_supervision import _get, depth_weight_from_conf, keypoint_depths
+
 
 def weight_loss(log_assignment, weights, gamma=0.0):
     b, m, n = log_assignment.shape
@@ -29,6 +31,17 @@ class NLLLoss(nn.Module):
     default_conf = {
         "nll_balancing": 0.5,
         "gamma_f": 0.0,  # focal loss
+        "depth_aware": {
+            "do": False,
+            "min_depth": 2.0,
+            "max_depth": 70.0,
+            "method": "inverse_depth",
+            "alpha": 0.03,
+            "eps": 1.0,
+            "valid_weight": 1.0,
+            "invalid_weight": 0.0,
+            "pair_combine": "min",
+        },
     }
 
     def __init__(self, conf):
@@ -56,6 +69,7 @@ class NLLLoss(nn.Module):
                 "nll_neg": nll_neg,
                 "num_matchable": num_pos,
                 "num_unmatchable": num_neg,
+                **getattr(self, "depth_metrics", {}),
             },
         )
 
@@ -70,4 +84,40 @@ class NLLLoss(nn.Module):
 
         weights[:, :m, -1] = neg0
         weights[:, -1, :n] = neg1
+        return self.apply_depth_weights(weights, data, m, n)
+
+    def apply_depth_weights(self, weights, data, m, n):
+        """Re-weight the matching loss matrix with the keypoint depths.
+
+        Follows spec section 7: the pair weight combines the individual
+        keypoint depth weights of both views, the unmatched-column weights are
+        scaled by the first view's weights and the unmatched-row weights by the
+        second view's weights. The combined weight defaults to the minimum of
+        the two (``pair_combine: "min"``), so a far unmatched keypoint drags the
+        whole correspondence weight to ``invalid_weight``.
+        """
+        da = self.conf.depth_aware
+        self.depth_metrics = {}
+        if not _get(da, "do", False):
+            return weights
+        d0 = keypoint_depths(data, 0)
+        d1 = keypoint_depths(data, 1)
+        if d0 is None or d1 is None:
+            return weights
+        w0 = depth_weight_from_conf(d0, da)
+        w1 = depth_weight_from_conf(d1, da)
+        invalid_weight = float(_get(da, "invalid_weight", 0.0))
+        if _get(da, "pair_combine", "min") == "prod":
+            pair = w0[:, :, None] * w1[:, None, :]
+        else:
+            pair = torch.min(w0[:, :, None], w1[:, None, :])
+        weights = weights.clone()
+        weights[:, :m, :n] = weights[:, :m, :n] * pair
+        weights[:, :m, -1] = weights[:, :m, -1] * w0
+        weights[:, -1, :n] = weights[:, -1, :n] * w1
+        self.depth_metrics = {
+            "depth/far_pair_frac": (pair == invalid_weight).float().mean().detach(),
+            "depth/valid_keypoints0": (w0 > invalid_weight).float().mean().detach(),
+            "depth/valid_keypoints1": (w1 > invalid_weight).float().mean().detach(),
+        }
         return weights

@@ -23,8 +23,8 @@ class SlamPosedDataset(BaseDataset):
     default_conf = {
         "data_dir": "output/slam",
         "scene": "slam_scene",
-        "train_size": "???",
-        "val_size": "???",
+        "train_size": 1000000,
+        "val_size": 1000000,
         "pose_file": "poses_odom_RGBD_slam.txt",
         "calib_dir": "images/calib",
         "image_dir": "images/rgb",
@@ -132,6 +132,10 @@ class _SlamPairDataset(torch.utils.data.Dataset):
                         for line in f:
                             if not line.strip(): continue
                             self.items.append((line.strip(), None))
+
+        limit = conf[f"{split}_size"]
+        if limit is not None and limit >= 0:
+            self.items = self.items[: int(limit)]
                             
     def _read_view(self, image_rel_path):
         # image_rel_path is e.g. "rgb/1775717079.106858.png"

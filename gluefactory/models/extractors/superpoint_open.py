@@ -14,6 +14,15 @@ import torch
 import torch.nn as nn
 
 from ..base_model import BaseModel
+from ..utils.depth_supervision import (
+    _get,
+    cell_depth_weights,
+    depth_aware_penalty,
+    far_mask,
+    missing_mask,
+    valid_depth,
+    weighted_cross_entropy,
+)
 from ..utils.misc import pad_and_stack
 from ...geometry.homography import warp_points_torch
 
@@ -130,6 +139,18 @@ class SuperPoint(BaseModel):
         "dense_outputs": True,
         "weights": None,  # local path of pretrained weights
         "lambda_d": 1.0,
+        "depth_supervision": {
+            "do": False,
+            "min_depth": 2.0,
+            "max_depth": 70.0,
+            "method": "inverse_depth",
+            "alpha": 0.03,
+            "eps": 1.0,
+            "valid_weight": 1.0,
+            "invalid_weight": 0.0,
+            "weight_descriptor": True,
+            "lambda_depth": 0.1,
+        },
     }
 
     checkpoint_url = "https://github.com/rpautrat/SuperPoint/raw/master/weights/superpoint_v6_from_tf.pth"  # noqa: E501
@@ -295,12 +316,19 @@ class SuperPoint(BaseModel):
             return targets
 
         # 1. Detector Loss (Cross Entropy)
+        ds = getattr(self.conf, "depth_supervision", None)
+        has_depth = data["view0"].get("depth") is not None
+        has_depth = has_depth and data["view1"].get("depth") is not None
+        use_ds = bool(_get(ds, "do", False)) and has_depth
         loss_det = 0.0
+        loss_da = 0.0
+        cell_weights = {}
+        cell_depths = {}
         for i in ["0", "1"]:
             logits = pred[f"logits{i}"]
             img = data[f"view{i}"]["image"]
             h, w = img.shape[-2:]
-            
+
             cache = data[f"view{i}"].get("cache", None)
             if cache is None or "keypoints" not in cache:
                 raise ValueError(
@@ -309,8 +337,17 @@ class SuperPoint(BaseModel):
                 )
             gt_kpts = cache["keypoints"]
             targets = keypoints_to_grid(gt_kpts, (h, w), logits.device)
-            loss_det += torch.nn.functional.cross_entropy(logits, targets)
+            if use_ds:
+                depth = data[f"view{i}"]["depth"]
+                w_cell, valid_cell, d_cell = cell_depth_weights(logits, depth, ds)
+                cell_weights[i] = w_cell
+                cell_depths[i] = d_cell
+                loss_det += weighted_cross_entropy(logits, targets, w_cell)
+                loss_da += depth_aware_penalty(logits, ~valid_cell)
+            else:
+                loss_det += torch.nn.functional.cross_entropy(logits, targets)
         loss_det = loss_det / 2.0
+        loss_da = loss_da / 2.0 if use_ds else torch.tensor(0.0, device=loss_det.device)
 
         # 2. Descriptor Loss (Grid-based contrastive loss)
         assert "dense_descriptors0" in pred and "dense_descriptors1" in pred
@@ -337,8 +374,9 @@ class SuperPoint(BaseModel):
         centers0 = centers0.reshape(-1, 2)
         centers1 = centers0.clone()
 
-        loss_desc = 0.0
+        loss_desc = torch.zeros([], device=device)
         zeros = torch.tensor(0.0, device=device)
+        weight_desc = use_ds and bool(_get(ds, "weight_descriptor", True))
 
         for i in range(b):
             if use_depth:
@@ -365,21 +403,47 @@ class SuperPoint(BaseModel):
 
             loss_pos = Y * torch.max(zeros, 1.0 - S)
             loss_neg = (1.0 - Y) * torch.max(zeros, S - 0.2)
-            loss_desc += (loss_pos + loss_neg).mean()
+            if weight_desc:
+                w0 = cell_weights["0"][i].reshape(-1)
+                w1 = cell_weights["1"][i].reshape(-1)
+                pair_weight = torch.min(w0[:, None], w1[None, :])
+                loss_desc += ((loss_pos + loss_neg) * pair_weight).mean()
+            else:
+                loss_desc += (loss_pos + loss_neg).mean()
 
         loss_desc = loss_desc / b
 
         lambda_d = self.conf.lambda_d if hasattr(self.conf, "lambda_d") else 1.0
-        total_loss = loss_det + lambda_d * loss_desc
+        lambda_depth = float(_get(ds, "lambda_depth", 0.1)) if use_ds else 0.0
+        loss_det_depth = loss_det + lambda_depth * loss_da
+        total_loss = loss_det_depth + lambda_d * loss_desc
 
         losses = {
             "total": total_loss,
-            "detector": loss_det,
+            "detector": loss_det_depth,
             "descriptor": loss_desc,
         }
         metrics = {
             "loss/total": total_loss.detach(),
-            "loss/detector": loss_det.detach(),
+            "loss/detector": loss_det_depth.detach(),
             "loss/descriptor": loss_desc.detach(),
         }
+        if use_ds:
+            losses["depth_aware"] = loss_da
+            metrics["loss/depth_aware"] = loss_da.detach()
+            d0 = cell_depths["0"]
+            d1 = cell_depths["1"]
+            max_depth = float(_get(ds, "max_depth", 70.0))
+            min_depth = float(_get(ds, "min_depth", 2.0))
+            valid0 = valid_depth(d0, min_depth, max_depth)
+            valid1 = valid_depth(d1, min_depth, max_depth)
+            far0 = far_mask(d0, max_depth).float().mean()
+            far1 = far_mask(d1, max_depth).float().mean()
+            cmiss0 = missing_mask(d0, min_depth).float().mean()
+            cmiss1 = missing_mask(d1, min_depth).float().mean()
+            metrics["depth/valid_frac"] = (
+                (valid0.float().mean() + valid1.float().mean()) / 2
+            ).detach()
+            metrics["depth/far_frac"] = ((far0 + far1) / 2).detach()
+            metrics["depth/missing_frac"] = ((cmiss0 + cmiss1) / 2).detach()
         return losses, metrics

@@ -329,6 +329,18 @@ class LightGlue(nn.Module):
             "gamma": 1.0,
             "fn": "nll",
             "nll_balancing": 0.5,
+            # depth-aware re-weighting handled by NLLLoss (see utils/losses.py).
+            "depth_aware": {
+                "do": False,
+                "min_depth": 2.0,
+                "max_depth": 70.0,
+                "method": "inverse_depth",
+                "alpha": 0.03,
+                "eps": 1.0,
+                "valid_weight": 1.0,
+                "invalid_weight": 0.0,
+                "pair_combine": "min",
+            },
         },
     }
 

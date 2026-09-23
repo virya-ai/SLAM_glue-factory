@@ -1,12 +1,12 @@
 data:
   name: slam_posed_images
-  data_dir: output/slam
+  data_dir: MAP2
   scene: slam_scene
   image_dir: images/rgb
   depth_dir: images/depth
   depth_format: png
-  train_size: 1400
-  val_size: 282
+  train_size: 1000000
+  val_size: 1000000
   batch_size: 1
   num_workers: 14
   preprocessing:
@@ -14,7 +14,7 @@ data:
     side: long
   load_features:
     do: True
-    path: output/slam/exports/pseudo_labels_slam.h5
+    path: MAP2/exports/pseudo_labels_slam.h5
     padding_length: 1024
     padding_fn: pad_local_features
 
@@ -29,6 +29,17 @@ model:
     trainable: True
     lambda_d: 1.0
     dense_outputs: True
+    depth_supervision:
+      do: True
+      min_depth: 2.0
+      max_depth: 70.0
+      method: inverse_depth
+      alpha: 0.03
+      eps: 1.0
+      valid_weight: 1.0
+      invalid_weight: 0.0
+      weight_descriptor: True
+      lambda_depth: 0.1
   ground_truth:
     name: null
   matcher:
