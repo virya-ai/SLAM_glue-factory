@@ -9,8 +9,8 @@ data:
   pairs_val: pairs_val.txt
   train_size: 1000000
   val_size: 1000000
-  batch_size: 16
-  num_workers: 18
+  batch_size: 32
+  num_workers: 22
   preprocessing:
     resize: 512
     side: long
