@@ -33,7 +33,7 @@ model:
   matcher:
     name: matchers.lightglue
     input_dim: 256
-    filter_threshold: 0.1
+    filter_threshold: 0.2
     flash: false
     checkpointed: true
     weights: superpoint

@@ -262,18 +262,33 @@ class SuperPoint(BaseModel):
             scores = pad_and_stack(
                 scores, self.conf.max_num_keypoints, -1, mode="zeros"
             )
+        elif b > 1:
+            # A real detection_threshold means different images in the batch
+            # keep different numbers of keypoints, so a plain torch.stack
+            # below would fail on mismatched sizes. Pad to the batch's own
+            # max count (pad_and_stack's length=None) rather than a fixed
+            # size -- same random-coord/zero-score padding convention used
+            # everywhere else, so padded points are still correctly masked
+            # out downstream via keypoint_scores > 0.
+            keypoints = pad_and_stack(
+                keypoints,
+                None,
+                -2,
+                mode="random_c",
+                bounds=(
+                    0,
+                    data.get("image_size", torch.tensor(image.shape[-2:])).min().item(),
+                ),
+            )
+            scores = pad_and_stack(scores, None, -1, mode="zeros")
         else:
             keypoints = torch.stack(keypoints, 0)
             scores = torch.stack(scores, 0)
 
-        if len(keypoints) == 1 or self.conf.force_num_keypoints:
-            # Batch sampling of the descriptors
-            desc = sample_descriptors(keypoints, descriptors_dense, self.stride)
-        else:
-            desc = [
-                sample_descriptors(k[None], d[None], self.stride)[0]
-                for k, d in zip(keypoints, descriptors_dense)
-            ]
+        # keypoints/scores are always a uniform-length stacked tensor at this
+        # point (forced padding, dynamic batch-max padding, or a trivial
+        # single-image stack), so descriptor sampling can always run batched.
+        desc = sample_descriptors(keypoints, descriptors_dense, self.stride)
 
         pred = {
             "keypoints": keypoints + 0.5,

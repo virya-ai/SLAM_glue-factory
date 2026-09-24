@@ -116,6 +116,8 @@ MPLBACKEND=Agg python3 -m gluefactory.scripts.run_inference \
     --input data/MAP1/images/rgb \
     --output html data \
     --output_dir "data/MAP1/visualizations/sp_lg_${LG_EXP_NAME}" \
+    --detection_threshold 0.2 \
+    --filter_threshold 0.2 \
     --max_pairs 0 \
     --downsample_dashboard 5 \
     --save_workers 8 \

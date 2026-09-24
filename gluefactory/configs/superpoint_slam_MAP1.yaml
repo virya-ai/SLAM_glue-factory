@@ -23,8 +23,8 @@ model:
   extractor:
     name: extractors.superpoint_open
     max_num_keypoints: 512
-    force_num_keypoints: True
-    detection_threshold: -1
+    force_num_keypoints: False
+    detection_threshold: 0.2
     nms_radius: 4
     trainable: True
     lambda_d: 1.0
