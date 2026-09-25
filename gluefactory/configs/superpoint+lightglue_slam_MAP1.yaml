@@ -38,8 +38,11 @@ model:
     checkpointed: true
     weights: superpoint
     loss:
+      nll_balancing: 0.7
       depth_aware:
         do: True
+        min_depth: 1.0
+        max_depth: 300.0
 
 train:
   seed: 42

@@ -31,8 +31,8 @@ model:
     dense_outputs: True
     depth_supervision:
       do: True
-      min_depth: 2.0
-      max_depth: 70.0
+      min_depth: 1.0
+      max_depth: 300.0
       method: inverse_depth
       alpha: 0.03
       eps: 1.0
@@ -40,6 +40,7 @@ model:
       invalid_weight: 0.0
       weight_descriptor: True
       lambda_depth: 0.1
+      pos_balance: 0.7
   ground_truth:
     name: null
   matcher:

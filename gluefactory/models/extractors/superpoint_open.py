@@ -16,12 +16,12 @@ import torch.nn as nn
 from ..base_model import BaseModel
 from ..utils.depth_supervision import (
     _get,
+    balanced_cross_entropy,
     cell_depth_weights,
     depth_aware_penalty,
     far_mask,
     missing_mask,
     valid_depth,
-    weighted_cross_entropy,
 )
 from ..utils.misc import pad_and_stack
 from ...geometry.homography import warp_points_torch
@@ -362,26 +362,24 @@ class SuperPoint(BaseModel):
                 # depth (inverse_depth etc.), which is the intended behavior
                 # for cells that DO have a GT keypoint label: trust labels
                 # from the base-detector pseudo-labels less as they get
-                # farther away. But applying that same falloff to
-                # background/dustbin cells (no label at all) under-supervises
-                # the "no keypoint here" signal in far-but-valid regions
-                # (e.g. the road), letting the detector confidently
-                # hallucinate a false-positive grid there. So: keep the
-                # distance-based weight only for labeled cells; background
-                # cells always get full weight. This override is local to
-                # the detector cross-entropy below -- cell_weights[i] keeps
-                # the original, unmodified depth weight for the descriptor
-                # loss's correspondence-reliability weighting further down,
-                # which is an unrelated concern.
+                # farther away. Background/dustbin cells (no label at all)
+                # don't get that treatment -- balanced_cross_entropy averages
+                # them separately with uniform (distance-independent) weight,
+                # so "no keypoint here" supervision stays equally strong at
+                # every distance, and combines the two groups at a fixed
+                # balance ratio so their relative cell counts (background
+                # vastly outnumbers labeled cells) can't skew which one
+                # dominates the gradient. cell_weights[i] keeps the original,
+                # unmodified depth weight for the descriptor loss's
+                # correspondence-reliability weighting further down, which is
+                # an unrelated concern.
                 positive_cell = targets != 64
-                det_weight = torch.where(
-                    positive_cell,
-                    w_cell,
-                    torch.full_like(w_cell, _get(ds, "valid_weight", 1.0)),
-                )
                 cell_weights[i] = w_cell
                 cell_depths[i] = d_cell
-                loss_det += weighted_cross_entropy(logits, targets, det_weight)
+                loss_det += balanced_cross_entropy(
+                    logits, targets, w_cell, positive_cell,
+                    _get(ds, "pos_balance", 0.7),
+                )
                 loss_da += depth_aware_penalty(logits, ~valid_cell)
             else:
                 loss_det += torch.nn.functional.cross_entropy(logits, targets)

@@ -35,6 +35,10 @@ DEFAULT_DEPTH_SUPERVISION_CONF = {
     "eps": 1.0,
     "valid_weight": 1.0,
     "invalid_weight": 0.0,
+    # Balance between labeled (positive) and background/dustbin cells in the
+    # detector's cross-entropy loss (see balanced_cross_entropy below). >0.5
+    # prioritizes learning genuine keypoints over background suppression.
+    "pos_balance": 0.7,
 }
 
 
@@ -222,14 +226,45 @@ def depth_weight_from_conf(depth, conf):
     )
 
 
-def weighted_cross_entropy(logits, targets, cell_weight):
-    """Per-cell cross-entropy with depth weighting.
+def balanced_cross_entropy(logits, targets, weight, positive_mask, balance, eps=1e-6):
+    """Per-cell cross-entropy, balanced between labeled and background cells.
 
-    ``cell_weight`` has shape ``[B, hc, wc]``; far/missing cells receive the
-    configured ``invalid_weight`` (0 suppresses them without deleting them).
+    A plain ``(ce * weight).mean()`` over all cells lets whichever group has
+    more cells dominate the gradient by sheer count -- for this kind of
+    sparse-keypoint detector, background/dustbin cells vastly outnumber
+    labeled ones (e.g. ~80% vs ~20%), so a flat mean pushes the network to
+    just confidently predict "no keypoint" everywhere rather than learn the
+    (rarer, and often distance-discounted via ``weight``) genuine positives.
+
+    This averages the loss separately *within* the labeled (``positive_mask``)
+    and background groups first, then combines them at a fixed ``balance``
+    ratio (mirrors LightGlue's own ``nll_balancing``) -- so relative group
+    size can no longer determine which one dominates.
+
+    Args:
+        logits: detector logits ``[B, 65, hc, wc]``.
+        targets: per-cell class targets ``[B, hc, wc]`` (64 = dustbin).
+        weight: per-cell weight ``[B, hc, wc]`` (e.g. from cell_depth_weights),
+            applied only within the positive group -- trust labeled cells
+            less as they get farther away, per the base-detector pseudo-
+            labels being less reliable at range.
+        positive_mask: boolean ``[B, hc, wc]``, True where a GT keypoint label
+            is present.
+        balance: weight given to the positive-cell loss term (0-1); the
+            background term gets ``1 - balance``.
+
+    The background term is a plain, unweighted mean (every background cell
+    counts equally regardless of distance) -- this is what keeps "no
+    keypoint here" supervision equally strong at every distance and is what
+    actually fixes the far-region false-positive grid; only the positive
+    group's internal weighting is distance-discounted.
     """
     ce = F.cross_entropy(logits, targets, reduction="none")
-    return (ce * cell_weight).mean()
+    pos = positive_mask.float()
+    bg = 1.0 - pos
+    loss_pos = (ce * weight * pos).sum() / (weight * pos).sum().clamp(min=eps)
+    loss_bg = (ce * bg).sum() / bg.sum().clamp(min=eps)
+    return balance * loss_pos + (1 - balance) * loss_bg
 
 
 def depth_aware_penalty(logits, invalid_cell):
