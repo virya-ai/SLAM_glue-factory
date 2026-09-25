@@ -30,7 +30,7 @@ model:
     lambda_d: 1.0
     dense_outputs: True
     depth_supervision:
-      do: True
+      do: False
       min_depth: 1.0
       max_depth: 300.0
       method: inverse_depth
