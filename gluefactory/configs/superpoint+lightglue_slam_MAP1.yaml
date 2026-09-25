@@ -37,6 +37,9 @@ model:
     flash: false
     checkpointed: true
     weights: superpoint
+    loss:
+      depth_aware:
+        do: True
 
 train:
   seed: 42

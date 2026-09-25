@@ -89,12 +89,20 @@ class NLLLoss(nn.Module):
     def apply_depth_weights(self, weights, data, m, n):
         """Re-weight the matching loss matrix with the keypoint depths.
 
-        Follows spec section 7: the pair weight combines the individual
-        keypoint depth weights of both views, the unmatched-column weights are
-        scaled by the first view's weights and the unmatched-row weights by the
-        second view's weights. The combined weight defaults to the minimum of
-        the two (``pair_combine: "min"``), so a far unmatched keypoint drags the
-        whole correspondence weight to ``invalid_weight``.
+        Positive (matched) pairs are scaled by the combined depth weight of
+        both keypoints (``pair_combine: "min"`` drags the whole pair weight
+        to ``invalid_weight`` if either point is far/invalid) -- this trusts
+        a claimed match less as it gets farther away, matching the base
+        detector's pseudo-labels being less reliable at range.
+
+        The dustbin rows/columns (weights[:, :m, -1] / weights[:, -1, :n]:
+        "this keypoint has no match") are NOT distance-weighted -- they
+        always get the constant ``valid_weight``. gt_matches0/1 == -1 (used
+        to build these) already excludes IGNORE_FEATURE points upstream, so
+        these are confirmed genuine negatives; discounting that "should be
+        unmatched" signal for far keypoints would under-supervise negative
+        matching the same way it under-supervised SuperPoint's background
+        cells and caused a false-positive detection grid there.
         """
         da = self.conf.depth_aware
         self.depth_metrics = {}
@@ -107,14 +115,15 @@ class NLLLoss(nn.Module):
         w0 = depth_weight_from_conf(d0, da)
         w1 = depth_weight_from_conf(d1, da)
         invalid_weight = float(_get(da, "invalid_weight", 0.0))
+        valid_weight = float(_get(da, "valid_weight", 1.0))
         if _get(da, "pair_combine", "min") == "prod":
             pair = w0[:, :, None] * w1[:, None, :]
         else:
             pair = torch.min(w0[:, :, None], w1[:, None, :])
         weights = weights.clone()
         weights[:, :m, :n] = weights[:, :m, :n] * pair
-        weights[:, :m, -1] = weights[:, :m, -1] * w0
-        weights[:, -1, :n] = weights[:, -1, :n] * w1
+        weights[:, :m, -1] = weights[:, :m, -1] * valid_weight
+        weights[:, -1, :n] = weights[:, -1, :n] * valid_weight
         self.depth_metrics = {
             "depth/far_pair_frac": (pair == invalid_weight).float().mean().detach(),
             "depth/valid_keypoints0": (w0 > invalid_weight).float().mean().detach(),

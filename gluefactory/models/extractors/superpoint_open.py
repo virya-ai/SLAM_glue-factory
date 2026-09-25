@@ -358,9 +358,30 @@ class SuperPoint(BaseModel):
             if use_ds:
                 depth = data[f"view{i}"]["depth"]
                 w_cell, valid_cell, d_cell = cell_depth_weights(logits, depth, ds)
+                # w_cell falls off with distance even for perfectly valid
+                # depth (inverse_depth etc.), which is the intended behavior
+                # for cells that DO have a GT keypoint label: trust labels
+                # from the base-detector pseudo-labels less as they get
+                # farther away. But applying that same falloff to
+                # background/dustbin cells (no label at all) under-supervises
+                # the "no keypoint here" signal in far-but-valid regions
+                # (e.g. the road), letting the detector confidently
+                # hallucinate a false-positive grid there. So: keep the
+                # distance-based weight only for labeled cells; background
+                # cells always get full weight. This override is local to
+                # the detector cross-entropy below -- cell_weights[i] keeps
+                # the original, unmodified depth weight for the descriptor
+                # loss's correspondence-reliability weighting further down,
+                # which is an unrelated concern.
+                positive_cell = targets != 64
+                det_weight = torch.where(
+                    positive_cell,
+                    w_cell,
+                    torch.full_like(w_cell, _get(ds, "valid_weight", 1.0)),
+                )
                 cell_weights[i] = w_cell
                 cell_depths[i] = d_cell
-                loss_det += weighted_cross_entropy(logits, targets, w_cell)
+                loss_det += weighted_cross_entropy(logits, targets, det_weight)
                 loss_da += depth_aware_penalty(logits, ~valid_cell)
             else:
                 loss_det += torch.nn.functional.cross_entropy(logits, targets)
