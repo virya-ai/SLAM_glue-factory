@@ -45,9 +45,15 @@
 #
 # NOTE on reading loss/detector: the shipped SP config optimizes the descriptor
 # only (train.opt_regexp=descriptor) with the detector frozen, so loss/detector
-# is a large constant that never trains (7669 on Ouster, 12660 on MAP1). It is
-# not a health signal. Judge a run by inference keypoint count vs stock, which
-# is what the epoch snapshots and step 6 report.
+# is a large constant that never trains. It is not a health signal. Judge a run
+# by inference keypoint count vs stock, which is what the epoch snapshots and
+# step 6 report.
+#
+# A constant near 0.89 is the healthy value. Values in the thousands mean the
+# loader is feeding raw 0-255 pixels into a model expecting [0,1] (see
+# datasets/slam_posed_images.py), which saturates the detector into a
+# stride-8 lattice of 512 identical-score keypoints. loss/descriptor must fall;
+# if it falls while S_match falls too, the descriptor loss is collapsing.
 #
 # Check progress any time with (from a NEW ssh session, doesn't need the
 # original one to still be open) -- everything this script prints, including
