@@ -15,6 +15,19 @@
 #           sp_experiment_name=superpoint_slam_run_200ep
 # The same epoch count is used for both SuperPoint and LightGlue.
 #
+# Optional environment overrides (all default to the original behaviour, so
+# running the script with no environment set is unchanged):
+#   DATA_DIR         dataset directory under data/            (default MAP1)
+#   SP_CONF          SuperPoint config to train               (default .../superpoint_slam_MAP1.yaml)
+#   SP_ONLY=1        SuperPoint only: skip steps 4 and 5, and run step 6 with
+#                    --matcher none --output all (renders per-pair PNGs +
+#                    images/index.html instead of an html-only dashboard)
+#   SKIP_PAIRS=1     skip step 2's pair regeneration. Required when training on
+#                    a pre-built subset, otherwise prepare_slam_pairs overwrites
+#                    the subset's pairs_train.txt / pairs_val.txt
+#   INFER_MAX_PAIRS  cap on consecutive image pairs in step 6  (default 0 = all)
+#   INFER_THRESHOLD  step 6 detection_threshold               (default 0.2)
+#
 # Check progress any time with (from a NEW ssh session, doesn't need the
 # original one to still be open) -- everything this script prints, including
 # every line gluefactory.train itself logs, goes to whatever file you
@@ -24,10 +37,11 @@
 #   tail -f "outputs/training/<sp_experiment_name>/log.txt"
 #   tail -f "outputs/training/<lg_experiment_name>/log.txt"
 #
-# Completion marker: outputs/training/${LG_EXP_NAME}.DONE (touched at the
-# very end, after inference/visualization). If that file doesn't exist yet,
-# the pipeline is still running or it failed -- check the log for a Python
-# traceback (set -e below stops the script on the first failing step).
+# Completion marker: outputs/training/${LG_EXP_NAME}.DONE, or
+# outputs/training/${SP_EXP_NAME}.DONE when SP_ONLY=1 (touched at the very end,
+# after inference/visualization). If that file doesn't exist yet, the pipeline
+# is still running or it failed -- check the log for a Python traceback (set -e
+# below stops the script on the first failing step).
 
 set -euo pipefail
 
@@ -38,10 +52,24 @@ conda activate base
 LG_EXP_NAME="${1:-lightglue_slam_run_200ep}"
 EPOCHS="${2:-200}"
 SP_EXP_NAME="${3:-superpoint_slam_run_200ep}"
-SP_CONF="gluefactory/configs/superpoint_slam_MAP1.yaml"
+DATA_DIR="${DATA_DIR:-MAP1}"
+SP_CONF="${SP_CONF:-gluefactory/configs/superpoint_slam_MAP1.yaml}"
+SP_ONLY="${SP_ONLY:-0}"
+SKIP_PAIRS="${SKIP_PAIRS:-0}"
+INFER_MAX_PAIRS="${INFER_MAX_PAIRS:-0}"
+INFER_THRESHOLD="${INFER_THRESHOLD:-0.2}"
 LG_CONF="gluefactory/configs/superpoint+lightglue_slam_MAP1.yaml"
 
-echo "=== [$(date)] Pipeline start: sp_experiment=${SP_EXP_NAME} lg_experiment=${LG_EXP_NAME} epochs=${EPOCHS} ==="
+if [ "$SP_ONLY" = "1" ]; then
+    echo "=== [$(date)] SP_ONLY=1: steps 4 (feature re-extraction) and 5 (LightGlue) will be skipped ==="
+    if [ "$SKIP_PAIRS" != "1" ]; then
+        echo "WARNING: SP_ONLY=1 without SKIP_PAIRS=1 will regenerate ${DATA_DIR} pairs," >&2
+        echo "         which discards any pre-built pair subset. Set SKIP_PAIRS=1 if that matters." >&2
+    fi
+fi
+
+echo "=== [$(date)] Pipeline start: sp_experiment=${SP_EXP_NAME} lg_experiment=${LG_EXP_NAME} epochs=${EPOCHS} data=${DATA_DIR} ==="
+echo "=== [$(date)] sp_conf=${SP_CONF} threshold=${INFER_THRESHOLD} max_pairs=${INFER_MAX_PAIRS} ==="
 
 echo "=== [$(date)] Step 1/6: wait for GPU to be free of other gluefactory.train jobs ==="
 while pgrep -f "gluefactory\.train" > /dev/null; do
@@ -49,13 +77,19 @@ while pgrep -f "gluefactory\.train" > /dev/null; do
     sleep 30
 done
 
-echo "=== [$(date)] Step 2/6: regenerate SLAM pairs (uses the fixed pose-timestamp matching) ==="
-python3 -m gluefactory.scripts.prepare_slam_pairs \
-    --data_dir data/MAP1 \
-    --min_dist 0.1 --max_dist 2.0 --max_angle 30 --min_overlap 0.1 \
-    --max_pairs 10 --split_ratio 0.83 --num_vis 0
-echo "Pair counts:"
-wc -l data/MAP1/pairs_train.txt data/MAP1/pairs_val.txt
+if [ "$SKIP_PAIRS" = "1" ]; then
+    echo "=== [$(date)] Step 2/6: SKIPPED (SKIP_PAIRS=1), using existing pairs ==="
+    echo "Pair counts:"
+    wc -l "data/${DATA_DIR}/pairs_train.txt" "data/${DATA_DIR}/pairs_val.txt"
+else
+    echo "=== [$(date)] Step 2/6: regenerate SLAM pairs (uses the fixed pose-timestamp matching) ==="
+    python3 -m gluefactory.scripts.prepare_slam_pairs \
+        --data_dir "data/${DATA_DIR}" \
+        --min_dist 0.1 --max_dist 2.0 --max_angle 30 --min_overlap 0.1 \
+        --max_pairs 10 --split_ratio 0.83 --num_vis 0
+    echo "Pair counts:"
+    wc -l "data/${DATA_DIR}/pairs_train.txt" "data/${DATA_DIR}/pairs_val.txt"
+fi
 
 # Rescale the exponential LR-decay schedule proportionally to EPOCHS. Both
 # shipped configs (train.lr_schedule.start=20, exp_div_10=10) were tuned for
@@ -70,11 +104,13 @@ echo "LR schedule for ${EPOCHS} epochs: start=${LR_START} exp_div_10=${LR_EXP_DI
 
 echo "=== [$(date)] Step 3/6: train SuperPoint for ${EPOCHS} epochs (experiment: ${SP_EXP_NAME}) ==="
 # Uses the existing pseudo_labels_slam.h5 (per-image consensus keypoints) for
-# keypoint/descriptor targets. The SP config also inherits the dataset's
-# default pairs_train.txt/pairs_val.txt (used for its cross-frame
-# depth-consistency supervision, depth_supervision.do=True), so it benefits
-# from the same pair-count fix as LightGlue -- this is why pair regeneration
-# (step 2) runs before this step.
+# keypoint/descriptor targets. The SP config inherits the dataset's
+# pairs_train.txt/pairs_val.txt for its two_view_pipeline sampling, so it
+# benefits from the same pair-count fix as LightGlue -- which is why pair
+# regeneration (step 2) normally runs before this step. Note the SP configs
+# currently set depth_supervision.do=False, so the detector loss is a plain
+# torch.nn.functional.cross_entropy over the 65-class cell targets, not the
+# depth-weighted balanced_cross_entropy.
 python3 -m gluefactory.train "$SP_EXP_NAME" \
     --conf "$SP_CONF" \
     train.epochs="$EPOCHS" \
@@ -87,47 +123,76 @@ if [ ! -f "$SP_CKPT" ]; then
     exit 1
 fi
 
-echo "=== [$(date)] Step 4/6: re-extract SuperPoint descriptors at consensus keypoints (all images, using the freshly trained SP) ==="
-python3 -m gluefactory.scripts.extract_slam_features \
-    --dataset MAP1 \
-    --pseudo_labels_h5 data/MAP1/exports/pseudo_labels_slam.h5 \
-    --weights "$SP_CKPT" \
-    --output_h5 data/MAP1/exports/sp_features_slam.h5 \
-    --modality rgb
+if [ "$SP_ONLY" = "1" ]; then
+    echo "=== [$(date)] Steps 4/6 and 5/6: SKIPPED (SP_ONLY=1) ==="
+    echo "  step 4 (extract_slam_features) only feeds the LightGlue targets, and"
+    echo "  step 5 trains LightGlue -- neither is needed for a SuperPoint-only run."
+else
+    echo "=== [$(date)] Step 4/6: re-extract SuperPoint descriptors at consensus keypoints (all images, using the freshly trained SP) ==="
+    python3 -m gluefactory.scripts.extract_slam_features \
+        --dataset "$DATA_DIR" \
+        --pseudo_labels_h5 "data/${DATA_DIR}/exports/pseudo_labels_slam.h5" \
+        --weights "$SP_CKPT" \
+        --output_h5 "data/${DATA_DIR}/exports/sp_features_slam.h5" \
+        --modality rgb
 
-echo "=== [$(date)] Step 5/6: train LightGlue for ${EPOCHS} epochs (experiment: ${LG_EXP_NAME}) ==="
-python3 -m gluefactory.train "$LG_EXP_NAME" \
-    --conf "$LG_CONF" \
-    train.epochs="$EPOCHS" \
-    train.lr_schedule.start="$LR_START" \
-    train.lr_schedule.exp_div_10="$LR_EXP_DIV10"
+    echo "=== [$(date)] Step 5/6: train LightGlue for ${EPOCHS} epochs (experiment: ${LG_EXP_NAME}) ==="
+    python3 -m gluefactory.train "$LG_EXP_NAME" \
+        --conf "$LG_CONF" \
+        train.epochs="$EPOCHS" \
+        train.lr_schedule.start="$LR_START" \
+        train.lr_schedule.exp_div_10="$LR_EXP_DIV10"
+fi
 
-echo "=== [$(date)] Step 6/6: inference + dashboard visualization with the new checkpoints ==="
-# Runs over ALL consecutive image pairs in data/MAP1/images/rgb (--max_pairs 0
-# = no cap), which is ~1812 pairs for the full 1813-image dataset. Per the
-# script's own docstring, skip the per-pair matplotlib PNG plots ("html
-# data" instead of "all") for a batch this size -- they're the main
-# wall-time sink -- and downsample what the dashboard renders so the HTML
-# stays manageable; matches_data.js still has every pair's raw data.
-MPLBACKEND=Agg python3 -m gluefactory.scripts.run_inference \
-    --backend checkpoint --matcher lightglue \
-    --extractor_ckpt "$SP_CKPT" \
-    --matcher_ckpt "outputs/training/${LG_EXP_NAME}/checkpoint_best.tar" \
-    --input data/MAP1/images/rgb \
-    --output html data \
-    --output_dir "data/MAP1/visualizations/sp_lg_${LG_EXP_NAME}" \
-    --detection_threshold 0.2 \
-    --filter_threshold 0.2 \
-    --resize 0 \
-    --max_pairs 0 \
-    --downsample_dashboard 5 \
-    --save_workers 8 \
-    --log_every 100
+if [ "$SP_ONLY" = "1" ]; then
+    # SuperPoint only: no matcher to run, and --output all so the per-pair
+    # matplotlib PNGs and images/index.html are actually written. ("--output
+    # html data" renders no PNGs, and "--output data" writes only the JSON.)
+    echo "=== [$(date)] Step 6/6: SuperPoint-only inference (--matcher none, rendering PNGs) ==="
+    MPLBACKEND=Agg python3 -m gluefactory.scripts.run_inference \
+        --backend checkpoint --matcher none \
+        --extractor_ckpt "$SP_CKPT" \
+        --input "data/${DATA_DIR}/images/rgb" \
+        --output all \
+        --output_dir "data/${DATA_DIR}/visualizations/sp_${SP_EXP_NAME}" \
+        --detection_threshold "$INFER_THRESHOLD" \
+        --resize 0 \
+        --max_pairs "$INFER_MAX_PAIRS" \
+        --log_every 100
+    VIS_DIR="data/${DATA_DIR}/visualizations/sp_${SP_EXP_NAME}/images/index.html"
+else
+    echo "=== [$(date)] Step 6/6: inference + dashboard visualization with the new checkpoints ==="
+    # Runs over ALL consecutive image pairs in data/${DATA_DIR}/images/rgb
+    # (--max_pairs 0 = no cap), which is ~1812 pairs for the full 1813-image
+    # dataset. Per the script's own docstring, skip the per-pair matplotlib PNG
+    # plots ("html data" instead of "all") for a batch this size -- they're the
+    # main wall-time sink -- and downsample what the dashboard renders so the
+    # HTML stays manageable; matches_data.js still has every pair's raw data.
+    MPLBACKEND=Agg python3 -m gluefactory.scripts.run_inference \
+        --backend checkpoint --matcher lightglue \
+        --extractor_ckpt "$SP_CKPT" \
+        --matcher_ckpt "outputs/training/${LG_EXP_NAME}/checkpoint_best.tar" \
+        --input "data/${DATA_DIR}/images/rgb" \
+        --output html data \
+        --output_dir "data/${DATA_DIR}/visualizations/sp_lg_${LG_EXP_NAME}" \
+        --detection_threshold "$INFER_THRESHOLD" \
+        --filter_threshold 0.2 \
+        --resize 0 \
+        --max_pairs "$INFER_MAX_PAIRS" \
+        --downsample_dashboard 5 \
+        --save_workers 8 \
+        --log_every 100
+    VIS_DIR="data/${DATA_DIR}/visualizations/sp_lg_${LG_EXP_NAME}/index.html"
+fi
 
 echo "=== [$(date)] ALL DONE ==="
 echo "SuperPoint best checkpoint: outputs/training/${SP_EXP_NAME}/checkpoint_best.tar"
-echo "LightGlue best checkpoint:  outputs/training/${LG_EXP_NAME}/checkpoint_best.tar"
 echo "SP training log:            outputs/training/${SP_EXP_NAME}/log.txt"
-echo "LG training log:            outputs/training/${LG_EXP_NAME}/log.txt"
-echo "Dashboard:                  data/MAP1/visualizations/sp_lg_${LG_EXP_NAME}/index.html"
-touch "outputs/training/${LG_EXP_NAME}.DONE"
+echo "Dashboard:                  ${VIS_DIR}"
+if [ "$SP_ONLY" = "1" ]; then
+    touch "outputs/training/${SP_EXP_NAME}.DONE"
+else
+    echo "LightGlue best checkpoint:  outputs/training/${LG_EXP_NAME}/checkpoint_best.tar"
+    echo "LG training log:            outputs/training/${LG_EXP_NAME}/log.txt"
+    touch "outputs/training/${LG_EXP_NAME}.DONE"
+fi
