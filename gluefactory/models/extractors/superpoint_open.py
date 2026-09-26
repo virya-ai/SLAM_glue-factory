@@ -439,14 +439,26 @@ class SuperPoint(BaseModel):
             S = torch.matmul(d0.t(), d1)
 
             loss_pos = Y * torch.max(zeros, 1.0 - S)
-            loss_neg = (1.0 - Y) * torch.max(zeros, S - 0.2)
+            # Rows with no valid correspondence must not count as negatives:
+            # (1 - Y) is 1.0 for them, so they are trained away from their own
+            # true match. Measured ~32% of cells on Ouster.
+            neg_row = valid_warp[:, None].to(S.dtype).expand_as(S)
+            loss_neg = neg_row * (1.0 - Y) * torch.max(zeros, S - 0.2)
+            # The two terms are normalised separately. A single flat mean over
+            # the N*N similarity matrix is ~99.4% negatives at N=1600 cells,
+            # so its gradient drives *every* similarity below the negative
+            # margin -- the loss falls while the descriptors collapse. Measured
+            # 300-step probe: loss -8.4x but match recall@1 -13x.
+            n_pos = Y.sum().clamp(min=1.0)
+            n_neg = (neg_row * (1.0 - Y)).sum().clamp(min=1.0)
             if weight_desc:
                 w0 = cell_weights["0"][i].reshape(-1)
                 w1 = cell_weights["1"][i].reshape(-1)
                 pair_weight = torch.min(w0[:, None], w1[None, :])
-                loss_desc += ((loss_pos + loss_neg) * pair_weight).mean()
+                loss_desc += (loss_pos * pair_weight).sum() / n_pos + \
+                             (loss_neg * pair_weight).sum() / n_neg
             else:
-                loss_desc += (loss_pos + loss_neg).mean()
+                loss_desc += loss_pos.sum() / n_pos + loss_neg.sum() / n_neg
 
         loss_desc = loss_desc / b
 

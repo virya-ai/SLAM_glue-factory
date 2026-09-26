@@ -1,9 +1,11 @@
 # Fast A/B harness for MAP1, mirroring superpoint_slam_Ouster64_B1_mini.yaml:
 # 100-pair subset, 50 epochs, so a detector-health check runs in ~2 minutes.
-# Trains the descriptor only (train.opt_regexp=descriptor) and keeps the
+# Trains the descriptor only (train.opt_regexp: descriptor below) and keeps the
 # pretrained detector frozen; freeze_batch_normalization then keeps that
-# detector bit-exact. Expect ~418 keypoints/frame -- a collapsed detector
-# gives ~3. Valid detector loss here is ~1.7, NOT the ~1.1 of a collapse.
+# detector bit-exact. Expect ~100-320 keypoints/frame at the inference
+# threshold of 0.005 -- a collapsed detector gives ~3. With the detector
+# frozen, loss/detector sits near 0.7 and barely moves; a value in the
+# thousands means the input images are not scaled to [0,1].
 data:
   name: slam_posed_images
   data_dir: MAP1_mini
@@ -74,3 +76,4 @@ train:
     on_epoch: true
     exp_div_10: 10
   plot: [5, 'gluefactory.visualization.visualize_batch.make_keypoint_figures']
+  opt_regexp: descriptor

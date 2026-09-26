@@ -36,9 +36,13 @@ def load_image(path, resize_max=0):
     else:
         w_new = (w // 8) * 8
         h_new = (h // 8) * 8
+        # Crop, do not resize. The training loader keeps the native size and
+        # the backbone simply drops the trailing pixels that do not fill a
+        # stride-8 cell, so squashing the remainder here would make inference
+        # see a different vertical scale than training did.
         if w_new != w or h_new != h:
-            img_gray = cv2.resize(img_gray, (w_new, h_new), interpolation=cv2.INTER_AREA)
-            img_bgr = cv2.resize(img_bgr, (w_new, h_new), interpolation=cv2.INTER_AREA)
+            img_gray = img_gray[:h_new, :w_new]
+            img_bgr = img_bgr[:h_new, :w_new]
 
     return img_bgr, img_gray
 

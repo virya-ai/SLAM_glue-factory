@@ -64,18 +64,19 @@ train:
   eval_every_iter: 100
   lr_schedule:
     type: exp
-    start: 20
+    start: 40
     on_epoch: true
-    exp_div_10: 10
+    exp_div_10: 20
   plot: [5, 'gluefactory.visualization.visualize_batch.make_keypoint_figures']
   # Only the descriptor head is optimized; the backbone and detector head keep
   # their official SuperPoint weights, which model.freeze_batch_normalization
   # then keeps bit-exact. Trainable-everything does NOT work here: the detector
-  # loss diverges (12660 on MAP1, 13.1 on Ouster) and inference collapses.
+  # is fed features the descriptor head is reshaping, and inference collapses.
   #
-  # Read loss/detector on these frozen-detector runs with care. It is a large
-  # constant that never trains (7669 on Ouster, 12660 on MAP1) because the
-  # detector is not in the optimizer -- it is a frozen disagreement score, not a
-  # health metric. Judge the run by inference keypoint count against stock, not
-  # by this number.
+  # Read loss/detector on these frozen-detector runs with care. The detector is
+  # not in the optimizer, so it is a near-constant disagreement score (roughly
+  # 0.7 here) rather than a health metric. Judge the run by inference keypoint
+  # count against stock SuperPoint, not by this number. A loss/detector in the
+  # thousands means the input images are not scaled to [0,1] -- see
+  # gluefactory/datasets/slam_posed_images.py.
   opt_regexp: descriptor

@@ -198,6 +198,20 @@ class _SlamPairDataset(torch.utils.data.Dataset):
             # mutually suppressed, so detection degenerates into a lattice of
             # one keypoint per 8px cell.
             img = torch.from_numpy(img).float() / 255.0
+            # Cheap invariant that turns a silent 255x-scale regression into an
+            # immediate failure. The backbone expects [0,1]; anything above 1
+            # saturates the detector softmax and yields a keypoint lattice.
+            if float(img.max()) > 1.0 + 1e-4 or float(img.min()) < -1e-4:
+                raise ValueError(
+                    f"image {path} scaled to [{float(img.min()):.3f}, "
+                    f"{float(img.max()):.3f}], expected [0, 1]"
+                )
+            channels = 1 if self.conf.grayscale else 3
+            if img.shape[0] != channels:
+                raise ValueError(
+                    f"image {path} has {img.shape[0]} channels, "
+                    f"expected {channels} (grayscale={self.conf.grayscale})"
+                )
         else:
             img = torch.zeros([1, 100, 100]).float() # Dummy
             
