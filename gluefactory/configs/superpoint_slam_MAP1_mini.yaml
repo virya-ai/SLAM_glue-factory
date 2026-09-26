@@ -1,6 +1,12 @@
+# Fast A/B harness for MAP1, mirroring superpoint_slam_Ouster64_B1_mini.yaml:
+# 100-pair subset, 50 epochs, so a detector-health check runs in ~2 minutes.
+# Trains the descriptor only (train.opt_regexp=descriptor) and keeps the
+# pretrained detector frozen; freeze_batch_normalization then keeps that
+# detector bit-exact. Expect ~418 keypoints/frame -- a collapsed detector
+# gives ~3. Valid detector loss here is ~1.7, NOT the ~1.1 of a collapse.
 data:
   name: slam_posed_images
-  data_dir: MAP1
+  data_dir: MAP1_mini
   scene: slam_scene
   image_dir: images/rgb
   depth_dir: images/depth
@@ -14,7 +20,7 @@ data:
     side: long
   load_features:
     do: True
-    path: MAP1/exports/pseudo_labels_slam.h5
+    path: MAP1_mini/exports/pseudo_labels_slam.h5
     padding_length: dynamic
     padding_fn: pad_local_features
 
