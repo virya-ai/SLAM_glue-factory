@@ -16,3 +16,12 @@ hpatches_results.html
 
 GPU
 GPU.pub
+
+# Stray artefacts from detached pipeline / inference runs. snapshot_epoch.sh
+# commits its output with `git add -f` onto refs/heads/snapshots/<experiment>,
+# so ignoring the working-tree copy only keeps `git status` clean; the snapshot
+# is still recorded on its own branch.
+nohup.out
+*.log
+latest_keypoints_visualization.png
+snapshots/

@@ -58,7 +58,7 @@ model:
 
 train:
   seed: 42
-  epochs: 50
+  epochs: 100
   lr: 1e-4
   log_every_iter: 10
   eval_every_iter: 100
@@ -68,3 +68,14 @@ train:
     on_epoch: true
     exp_div_10: 10
   plot: [5, 'gluefactory.visualization.visualize_batch.make_keypoint_figures']
+  # Only the descriptor head is optimized; the backbone and detector head keep
+  # their official SuperPoint weights, which model.freeze_batch_normalization
+  # then keeps bit-exact. Trainable-everything does NOT work here: the detector
+  # loss diverges (12660 on MAP1, 13.1 on Ouster) and inference collapses.
+  #
+  # Read loss/detector on these frozen-detector runs with care. It is a large
+  # constant that never trains (7669 on Ouster, 12660 on MAP1) because the
+  # detector is not in the optimizer -- it is a frozen disagreement score, not a
+  # health metric. Judge the run by inference keypoint count against stock, not
+  # by this number.
+  opt_regexp: descriptor
