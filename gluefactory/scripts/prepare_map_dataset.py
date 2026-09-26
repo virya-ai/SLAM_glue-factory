@@ -64,6 +64,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 import yaml
+from scipy.spatial.transform import Rotation
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -475,35 +476,18 @@ def _write_calib_yaml(path, cal, stem):
 
 
 def rot_to_quat(R):
-    q = np.empty(4)
-    R = np.asarray(R, dtype=np.float64)
-    m00, m11, m22 = R[0, 0], R[1, 1], R[2, 2]
-    tr = m00 + m11 + m22
-    if tr > 0:
-        S = np.sqrt(tr + 1.0) * 2
-        q[0] = 0.25 * S
-        q[1] = (R[2, 1] - R[1, 2]) / S
-        q[2] = (R[0, 2] - R[2, 0]) / S
-        q[3] = (R[1, 0] - R[0, 1]) / S
-    elif m00 > m11 and m00 > m22:
-        S = np.sqrt(1.0 + m00 - m11 - m22) * 2
-        q[0] = (R[1, 2] - R[2, 1]) / S
-        q[1] = 0.25 * S
-        q[2] = (R[0, 1] + R[1, 0]) / S
-        q[3] = (R[0, 2] + R[2, 0]) / S
-    elif m11 > m22:
-        S = np.sqrt(1.0 + m11 - m00 - m22) * 2
-        q[0] = (R[2, 0] - R[0, 2]) / S
-        q[1] = (R[0, 1] + R[1, 0]) / S
-        q[2] = 0.25 * S
-        q[3] = (R[1, 2] + R[2, 1]) / S
-    else:
-        S = np.sqrt(1.0 + m22 - m00 - m11) * 2
-        q[0] = (R[0, 1] - R[1, 0]) / S
-        q[1] = (R[0, 2] + R[2, 0]) / S
-        q[2] = (R[1, 2] + R[2, 1]) / S
-        q[3] = 0.25 * S
-    return q
+    """Rotation matrix -> quaternion in TUM order ``(qx, qy, qz, qw)``.
+
+    This is the order every consumer of ``poses_odom_RGBD_slam.txt`` expects
+    (``gluefactory.datasets.slam_posed_images``,
+    ``gluefactory.slam.geometry``), so the components must come back
+    x, y, z, w.  The previous hand-rolled Shepperd implementation returned a
+    different permutation depending on which branch it took -- (w, x, y, z)
+    for ``tr > 0`` and for the ``m11``-dominant case, (-x, w, y, z) for the
+    ``m00``-dominant one and (-w, y, z, x) for the fallback -- so the written
+    poses did not reproduce the rotations stored in the DB.
+    """
+    return Rotation.from_matrix(np.asarray(R, dtype=np.float64)).as_quat()
 
 
 def run(conf):

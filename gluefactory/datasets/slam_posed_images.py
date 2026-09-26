@@ -37,12 +37,16 @@ def dynamic_collate(batch):
             if key in sample and "cache" in sample[key]:
                 views.append(sample[key]["cache"])
 
-    real_views = [c for c in views if "keypoints" in c and c["keypoints"].numel() > 0]
-    if not real_views:
+    kp_views = [c for c in views if "keypoints" in c]
+    if not kp_views:
         return base_collate(batch)
 
-    max_kp = max(c["keypoints"].shape[0] for c in real_views)
-    for cache in real_views:
+    # Pad every view to the batch max, including views with zero real
+    # keypoints -- excluding them here left their tensors unpadded while
+    # every other view in the batch was padded, so base_collate's
+    # torch.stack crashed on the shape mismatch as soon as batch_size > 1.
+    max_kp = max(c["keypoints"].shape[0] for c in kp_views)
+    for cache in kp_views:
         pad_local_features(cache, max_kp)
     return base_collate(batch)
 

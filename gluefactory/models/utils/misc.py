@@ -37,16 +37,23 @@ def pad_to_length(
     elif mode == "ones":
         xn = torch.ones(*shape, device=x.device, dtype=x.dtype)
     elif mode == "random":
-        low = low if low is not None else x.min()
-        high = high if high is not None else x.max()
+        # x.min()/x.max() raise on an empty tensor (d == 0); fall back to
+        # zeros in that case, mirroring random_c below.
+        low = low if low is not None else (x.min() if d > 0 else 0.0)
+        high = high if high is not None else (x.max() if d > 0 else 0.0)
         xn = torch.empty(*shape, device=x.device).uniform_(low, high)
     elif mode == "random_c":
         low, high = bounds  # we use the bounds as fallback for empty seq.
+        # If the real sequence is empty (d == 0) and no explicit bounds were
+        # given, fall back to zeros rather than uniform_(None, None), which
+        # raises. These entries carry zero score/weight downstream anyway.
+        low = low if low is not None else 0.0
+        high = high if high is not None else 0.0
         xn = torch.cat(
             [
                 torch.empty(*shape[:-1], 1, device=x.device).uniform_(
-                    x[..., i].min() if d > 0 else low,
-                    x[..., i].max() if d > 0 else high,
+                    x[..., i].min().item() if d > 0 else low,
+                    x[..., i].max().item() if d > 0 else high,
                 )
                 for i in range(shape[-1])
             ],

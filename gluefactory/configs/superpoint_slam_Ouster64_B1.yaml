@@ -1,0 +1,61 @@
+data:
+  name: slam_posed_images
+  data_dir: Ouster64_B1
+  scene: slam_scene
+  image_dir: images/rgb
+  depth_dir: images/depth
+  depth_format: png
+  train_size: 1000000
+  val_size: 1000000
+  batch_size: 1
+  num_workers: 22
+  preprocessing:
+    resize: null
+    side: long
+  load_features:
+    do: True
+    path: Ouster64_B1/exports/pseudo_labels_slam.h5
+    padding_length: 300
+    padding_fn: pad_local_features
+
+model:
+  name: two_view_pipeline
+  extractor:
+    name: extractors.superpoint_open
+    max_num_keypoints: 512
+    force_num_keypoints: False
+    detection_threshold: 0.2
+    nms_radius: 4
+    trainable: True
+    lambda_d: 1.0
+    dense_outputs: True
+    pos_balance: 0.5
+    depth_supervision:
+      do: False
+      min_depth: 1.0
+      max_depth: 300.0
+      method: inverse_depth
+      alpha: 0.03
+      eps: 1.0
+      valid_weight: 1.0
+      invalid_weight: 0.0
+      weight_descriptor: True
+      lambda_depth: 0.1
+      pos_balance: 0.7
+  ground_truth:
+    name: null
+  matcher:
+    name: null
+
+train:
+  seed: 42
+  epochs: 100
+  lr: 1e-4
+  log_every_iter: 10
+  eval_every_iter: 100
+  lr_schedule:
+    type: exp
+    start: 40
+    on_epoch: true
+    exp_div_10: 20
+  plot: [5, 'gluefactory.visualization.visualize_batch.make_keypoint_figures']
