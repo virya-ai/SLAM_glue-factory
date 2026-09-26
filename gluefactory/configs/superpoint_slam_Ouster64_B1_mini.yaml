@@ -1,6 +1,16 @@
+# Fast A/B harness for the SuperPoint detector-loss regression on Ouster64_B1.
+# Same model/loss code path as superpoint_slam_Ouster64_B1.yaml, but on a
+# 100-pair subset for 50 epochs so the two arms separate in ~2 minutes.
+#
+# Deliberately does NOT set a top-level `pos_balance`. That key is the single
+# variable under test:
+#   Arm B (buggy)  current code   + model.extractor.pos_balance=0.5 on the CLI
+#   Arm A (fixed)  reverted code  + no override
+# Keeping it out of the YAML means both arms run the identical file and differ
+# only by that one override.
 data:
   name: slam_posed_images
-  data_dir: Ouster64_B1
+  data_dir: Ouster64_B1_mini
   scene: slam_scene
   image_dir: images/rgb
   depth_dir: images/depth
@@ -14,7 +24,7 @@ data:
     side: long
   load_features:
     do: True
-    path: Ouster64_B1/exports/pseudo_labels_slam.h5
+    path: Ouster64_B1_mini/exports/pseudo_labels_slam.h5
     padding_length: dynamic
     padding_fn: pad_local_features
 
@@ -58,13 +68,13 @@ model:
 
 train:
   seed: 42
-  epochs: 100
+  epochs: 50
   lr: 1e-4
-  log_every_iter: 10
-  eval_every_iter: 100
+  log_every_iter: 1
+  eval_every_iter: 4
   lr_schedule:
     type: exp
-    start: 40
+    start: 20
     on_epoch: true
-    exp_div_10: 20
+    exp_div_10: 10
   plot: [5, 'gluefactory.visualization.visualize_batch.make_keypoint_figures']
