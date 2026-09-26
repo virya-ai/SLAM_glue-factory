@@ -191,7 +191,13 @@ class _SlamPairDataset(torch.utils.data.Dataset):
             if self.conf.grayscale:
                 img = np.expand_dims(img, axis=-1)
             img = img.transpose(2, 0, 1) # HWC -> CHW
-            img = torch.from_numpy(img).float()
+            # Scale to [0, 1] like numpy_image_to_torch/load_image do for every
+            # other dataset. cv2.imread yields 0-255 uint8; feeding that raw
+            # saturates the detector softmax (logits ~7e4, every score exactly
+            # 1.0), and since nms_radius 4 < stride 8 adjacent cells are not
+            # mutually suppressed, so detection degenerates into a lattice of
+            # one keypoint per 8px cell.
+            img = torch.from_numpy(img).float() / 255.0
         else:
             img = torch.zeros([1, 100, 100]).float() # Dummy
             
